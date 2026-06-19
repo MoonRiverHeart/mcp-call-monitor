@@ -1,6 +1,6 @@
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {
   try {
-    const call = await request.json();
+    const call = await context.request.json();
 
     if (!call || !call.callId) {
       return new Response(JSON.stringify({ error: "Missing required field: callId" }), {

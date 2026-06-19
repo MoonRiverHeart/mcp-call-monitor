@@ -1,8 +1,1 @@
-{
-  "kv": [
-    {
-      "variable": "MCP_KV",
-      "namespace": "mcp-call-monitor"
-    }
-  ]
-}
+{}

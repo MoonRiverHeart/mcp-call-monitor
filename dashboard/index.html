@@ -92,12 +92,13 @@ body{font-family:var(--font);background:var(--bg-primary);color:var(--text-prima
 .view.active{display:block}
 
 /* Metric cards */
-.metrics-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.metrics-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
 .metric-card{background:var(--bg-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:14px 16px;transition:all var(--transition);position:relative;overflow:hidden}
 .metric-card:hover{border-color:var(--border);transform:translateY(-1px);box-shadow:var(--shadow)}
 .metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;opacity:0.6}
 .metric-card.mcp::before{background:linear-gradient(90deg,var(--accent-blue),var(--accent-cyan))}
 .metric-card.tools::before{background:linear-gradient(90deg,var(--accent-purple),var(--accent-pink))}
+.metric-card.skills::before{background:linear-gradient(90deg,var(--accent-cyan),var(--accent-blue))}
 .metric-card.errors::before{background:linear-gradient(90deg,var(--accent-red),var(--accent-orange))}
 .metric-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .metric-label{font-size:0.72rem;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em}
@@ -105,6 +106,7 @@ body{font-family:var(--font);background:var(--bg-primary);color:var(--text-prima
 .metric-icon svg{width:16px;height:16px}
 .metric-icon.blue{background:rgba(84,112,198,0.15);color:var(--accent-blue)}
 .metric-icon.purple{background:rgba(154,96,180,0.15);color:var(--accent-purple)}
+.metric-icon.cyan{background:rgba(115,192,222,0.15);color:var(--accent-cyan)}
 .metric-icon.red{background:rgba(238,102,102,0.15);color:var(--accent-red)}
 .metric-value{font-size:1.6rem;font-weight:700;letter-spacing:-0.03em;line-height:1.1;margin-bottom:4px}
 .metric-breakdown{display:flex;gap:12px;font-size:0.72rem}
@@ -331,6 +333,17 @@ body{font-family:var(--font);background:var(--bg-primary);color:var(--text-prima
         <div class="metric-breakdown">
           <span class="metric-breakdown-item"><span class="metric-breakdown-dot green"></span><span class="metric-breakdown-val" id="toolSuccess">--</span><span class="metric-breakdown-lbl">成功</span></span>
           <span class="metric-breakdown-item"><span class="metric-breakdown-dot red"></span><span class="metric-breakdown-val" id="toolError">--</span><span class="metric-breakdown-lbl">失败</span></span>
+        </div>
+      </div>
+      <div class="metric-card skills">
+        <div class="metric-top">
+          <span class="metric-label">Skills 调用</span>
+          <div class="metric-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+        </div>
+        <div class="metric-value" id="skillTotal">--</div>
+        <div class="metric-breakdown">
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot green"></span><span class="metric-breakdown-val" id="skillSuccess">--</span><span class="metric-breakdown-lbl">成功</span></span>
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot red"></span><span class="metric-breakdown-val" id="skillError">--</span><span class="metric-breakdown-lbl">失败</span></span>
         </div>
       </div>
       <div class="metric-card errors">
@@ -684,19 +697,17 @@ function updateOverviewFromErrors(errors) {
   if (!chartServers) return;
   const c = getChartColors();
   const serverStats = {};
+  if (statsData) {
+    const mcpDetail = statsData.byMcpServer || {};
+    Object.entries(mcpDetail).forEach(([server, info]) => {
+      serverStats[server] = { success: info.success ?? 0, error: info.error ?? 0 };
+    });
+  }
   errors.forEach(err => {
     const s = err.mcpServer || 'unknown';
     if (!serverStats[s]) serverStats[s] = { success:0, error:0 };
     serverStats[s].error++;
   });
-  if (statsData) {
-    const mcpDetail = statsData.mcpServerStats || {};
-    Object.entries(mcpDetail).forEach(([server, info]) => {
-      if (!serverStats[server]) serverStats[server] = { success:0, error:0 };
-      serverStats[server].success = info.success ?? 0;
-      if (info.error) serverStats[server].error = info.error;
-    });
-  }
   const servers = Object.keys(serverStats);
   chartServers.setOption({
     xAxis: { data: servers },
@@ -741,17 +752,15 @@ function initSessionCharts() {
 function renderSessionList() {
   const list = document.getElementById('sessionList');
   if (!list) return;
-  // Group errors by sessionId
-  const sessions = {};
-  errorsData.forEach(err => {
-    const sid = err.sessionId || 'unknown';
-    if (!sessions[sid]) sessions[sid] = { count: 0, errors: [], latest: err.timestamp };
-    sessions[sid].count++;
-    sessions[sid].errors.push(err);
-    if (err.timestamp && (!sessions[sid].latest || err.timestamp > sessions[sid].latest)) sessions[sid].latest = err.timestamp;
+  // Use bySession from statsData
+  const bySession = statsData?.bySession || {};
+  const entries = Object.entries(bySession);
+  // Sort by firstCall timestamp descending
+  const sorted = entries.sort((a, b) => {
+    const ta = a[1].firstCall || '';
+    const tb = b[1].firstCall || '';
+    return tb.localeCompare(ta);
   });
-  // Sort by latest timestamp descending
-  const sorted = Object.entries(sessions).sort((a,b) => (b[1].latest || '').localeCompare(a[1].latest || ''));
 
   if (sorted.length === 0) {
     list.innerHTML = '<div class="session-empty">暂无 Session 数据</div>';
@@ -761,9 +770,12 @@ function renderSessionList() {
   let html = '';
   sorted.forEach(([sid, info]) => {
     const isActive = sid === selectedSessionId ? ' active' : '';
+    const title = info.title && info.title !== 'unknown' ? info.title : truncate(sid, 20);
+    const errCount = info.error ?? 0;
+    const total = info.total ?? 0;
     html += `<div class="session-item${isActive}" onclick="selectSession('${sid}')">
-      <div class="session-id">${truncate(sid, 20)}</div>
-      <div class="session-meta">${formatTimeShort(info.latest)} / ${info.count} 错误</div>
+      <div class="session-id">${escapeHtml(title)}</div>
+      <div class="session-meta">${formatTimeShort(info.firstCall)} / ${total} 调用 / ${errCount} 错误</div>
     </div>`;
   });
   list.innerHTML = html;
@@ -789,7 +801,9 @@ function selectSession(sid) {
 
 function renderSessionDetail(sid) {
   const title = document.getElementById('sessionDetailTitle');
-  if (title) title.textContent = 'Session: ' + truncate(sid, 30);
+  const sessionInfo = statsData?.bySession?.[sid];
+  const displayTitle = sessionInfo?.title && sessionInfo.title !== 'unknown' ? sessionInfo.title : truncate(sid, 30);
+  if (title) title.textContent = displayTitle;
 
   const c = getChartColors();
   const sessionErrors = errorsData.filter(e => (e.sessionId || 'unknown') === sid);
@@ -1081,6 +1095,9 @@ function renderStats(data) {
   animateCount(document.getElementById('toolTotal'), data.toolCalls?.total ?? 0);
   animateCount(document.getElementById('toolSuccess'), data.toolCalls?.success ?? 0);
   animateCount(document.getElementById('toolError'), data.toolCalls?.error ?? 0);
+  animateCount(document.getElementById('skillTotal'), data.skillCalls?.total ?? 0);
+  animateCount(document.getElementById('skillSuccess'), data.skillCalls?.success ?? 0);
+  animateCount(document.getElementById('skillError'), data.skillCalls?.error ?? 0);
   animateCount(document.getElementById('totalErrors'), data.totalErrors ?? 0);
   updateOverviewFromStats(data);
   updateOverviewFromErrors(errorsData);

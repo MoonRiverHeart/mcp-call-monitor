@@ -129,8 +129,13 @@ app.get('/api/stats', (req, res) => {
     const byTime = { hourly: {}, daily: {} };
     const byMcpServer = {};
     const byTool = {};
-    let totalCalls = 0, totalMcpCalls = 0, totalToolCalls = 0;
+    const bySkill = {};
+    const bySession = {};
+    const SKILL_PATTERNS = ['skill', 'TodoWrite', 'Task', 'Session', 'Team', 'Background', 'Lsp', 'Token', 'Marketplace', 'Plugin', 'Context7'];
+    let totalCalls = 0, totalMcpCalls = 0, totalToolCalls = 0, totalSkillCalls = 0;
     let totalSuccess = 0, totalErrors = 0;
+    let mcpSuccess = 0, mcpErrors = 0, toolSuccess = 0, toolErrors = 0;
+    let skillSuccess = 0, skillErrors = 0;
 
     for (const call of data.calls) {
       totalCalls += 1;
@@ -140,7 +145,15 @@ app.get('/api/stats', (req, res) => {
       totalErrors += err;
 
       const isMcp = call.isMcpCall ? true : false;
-      if (isMcp) { totalMcpCalls += 1; } else { totalToolCalls += 1; }
+      if (isMcp) { totalMcpCalls += 1; mcpSuccess += ok; mcpErrors += err; } else { totalToolCalls += 1; toolSuccess += ok; toolErrors += err; }
+
+      const isSkill = SKILL_PATTERNS.some(p => (call.tool || '').includes(p));
+      if (isSkill) { totalSkillCalls += 1; skillSuccess += ok; skillErrors += err; }
+      if (isSkill) {
+        const skillName = call.tool || 'unknown';
+        if (!bySkill[skillName]) bySkill[skillName] = { total: 0, success: 0, error: 0 };
+        bySkill[skillName].total += 1; bySkill[skillName].success += ok; bySkill[skillName].error += err;
+      }
 
       const model = call.model || 'unknown';
       if (!byModel[model]) byModel[model] = { total: 0, success: 0, error: 0, mcpCalls: 0, toolCalls: 0 };
@@ -181,13 +194,31 @@ app.get('/api/stats', (req, res) => {
       byTool[tool].total += 1;
       byTool[tool].success += ok;
       byTool[tool].error += err;
+
+      const sid = call.sessionId || 'unknown';
+      if (!bySession[sid]) bySession[sid] = { total: 0, success: 0, error: 0, tools: {}, firstCall: call.timestamp || '', title: '' };
+      bySession[sid].total += 1;
+      bySession[sid].success += ok;
+      bySession[sid].error += err;
+      if (!bySession[sid].tools[tool]) bySession[sid].tools[tool] = 0;
+      bySession[sid].tools[tool] += 1;
+      if (call.timestamp && call.timestamp > (bySession[sid].firstCall || '')) bySession[sid].firstCall = call.timestamp;
     }
 
     const errorRate = totalCalls > 0 ? (totalErrors / totalCalls * 100) : 0;
 
+    for (const sid of Object.keys(bySession)) {
+      const topTools = Object.entries(bySession[sid].tools).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
+      bySession[sid].title = topTools.join(' + ');
+    }
+
     res.json({
-      totalCalls, totalMcpCalls, totalToolCalls, totalSuccess, totalErrors, errorRate,
-      byModel, byTime, byMcpServer, byTool,
+      totalCalls, totalMcpCalls, totalToolCalls, totalSkillCalls,
+      totalSuccess, totalErrors, errorRate,
+      mcpCalls: { total: totalMcpCalls, success: mcpSuccess, error: mcpErrors },
+      toolCalls: { total: totalToolCalls, success: toolSuccess, error: toolErrors },
+      skillCalls: { total: totalSkillCalls, success: skillSuccess, error: skillErrors },
+      byModel, byTime, byMcpServer, byTool, bySkill, bySession,
       lastUpdated: data.lastUpdated,
     });
   } catch (err) {
@@ -309,8 +340,11 @@ function computeStats() {
   const stats = {
     mcpCalls: { total: 0, success: 0, error: 0 },
     toolCalls: { total: 0, success: 0, error: 0 },
+    skillCalls: { total: 0, success: 0, error: 0 },
     totalErrors: 0,
   };
+
+  const SKILL_PATTERNS = ['skill', 'TodoWrite', 'Task', 'Session', 'Team', 'Background', 'Lsp', 'Token', 'Marketplace', 'Plugin', 'Context7'];
 
   for (const report of data.reports) {
     if (report.mcpCalls) {
@@ -345,6 +379,13 @@ function computeStats() {
         stats.toolCalls.error += 1;
         stats.totalErrors += 1;
       }
+    }
+
+    const tool = call.tool || '';
+    const isSkill = SKILL_PATTERNS.some(p => tool.includes(p));
+    if (isSkill) {
+      stats.skillCalls.total += 1;
+      if (call.success) stats.skillCalls.success += 1; else stats.skillCalls.error += 1;
     }
   }
 
@@ -438,6 +479,14 @@ app.get('/api/badge/errors', (req, res) => {
   const errCount = stats.totalErrors;
   const color = errCount === 0 ? '#91cc75' : errCount <= 5 ? '#fac858' : '#ee6666';
   badgeResponse(res, makeBadge('错误数', String(errCount), color, style, theme));
+});
+
+app.get('/api/badge/skills', (req, res) => {
+  const stats = computeStats();
+  const style = req.query.style === 'flat' ? 'flat' : 'rounded';
+  const theme = req.query.theme === 'light' ? 'light' : 'dark';
+  const value = `${stats.skillCalls.total} ✓ ${stats.skillCalls.error} ✗`;
+  badgeResponse(res, makeBadge('Skills', value, '#73c0de', style, theme));
 });
 
 app.get('/api/badge/summary', (req, res) => {

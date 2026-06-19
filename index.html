@@ -185,8 +185,8 @@ html,body{height:100%}
 <!-- Newly Found -->
 <section id="newly" class="py-16 px-6 max-w-7xl mx-auto">
   <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">今日新增</h2>
-  <p class="text-center text-slate-500 mb-8 text-sm">对比昨日数据，首次出现的 MCP / 工具 / 模型</p>
-  <div class="grid md:grid-cols-3 gap-8">
+  <p class="text-center text-slate-500 mb-8 text-sm">对比昨日数据，首次出现的 MCP / 工具 / 模型 / Skills</p>
+  <div class="grid md:grid-cols-4 gap-8">
     <div class="bg-white rounded-xl shadow-md p-6">
       <h3 class="font-semibold text-lg text-slate-800 mb-4 flex items-center gap-2">
         <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/></svg>
@@ -211,6 +211,15 @@ html,body{height:100%}
         新增模型
       </h3>
       <div id="newModelList" class="space-y-2 text-sm text-slate-600">
+        <p class="text-slate-400">加载中...</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-md p-6">
+      <h3 class="font-semibold text-lg text-slate-800 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.168 18.477 17.683 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        新增 Skills
+      </h3>
+      <div id="newSkillList" class="space-y-2 text-sm text-slate-600">
         <p class="text-slate-400">加载中...</p>
       </div>
     </div>
@@ -239,13 +248,13 @@ html,body{height:100%}
 </main>
 
 <script>
-const STATS_API = 'https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/stats';
-const CALLS_API = 'https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/calls';
+const STATS_API = 'https://mcp-call-monitor-dpdng7zv7tf9.edgeone.dev/api/stats';
+const CALLS_API = 'https://mcp-call-monitor-dpdng7zv7tf9.edgeone.dev/api/calls';
 
 let statsData = null;
 let callsData = null;
 let currentTab = 'mcp';
-let newlyFound = { mcpServers: [], tools: [], models: [] };
+let newlyFound = { mcpServers: [], tools: [], models: [], skills: [] };
 
 // --- Tab Switcher ---
 function switchTab(tab) {
@@ -270,7 +279,6 @@ function renderRankings() {
   }
 
   let items = [];
-  let skillsNote = '';
   if (currentTab === 'mcp') {
     items = Object.entries(statsData.byMcpServer || {})
       .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
@@ -280,20 +288,9 @@ function renderRankings() {
       .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
       .sort((a, b) => b.total - a.total);
   } else if (currentTab === 'skills') {
-    // Skills: derive from byTool entries that look like skill invocations
-    const skillPatterns = ['skill', 'TodoWrite', 'Session', 'Team', 'Background', 'CallOmo', 'Marketplace', 'Plugin', 'Token'];
-    const skillItems = Object.entries(statsData.byTool || {})
-      .filter(([name]) => skillPatterns.some(p => name.includes(p)))
-      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }));
-    if (skillItems.length === 0) {
-      // Fallback: show all tools with a note
-      items = Object.entries(statsData.byTool || {})
-        .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0, isFallback: true }))
-        .sort((a, b) => b.total - a.total);
-      skillsNote = 'Skills 数据随 Hook 采集完善后更新，当前以工具维度作为参考';
-    } else {
-      items = skillItems.sort((a, b) => b.total - a.total);
-    }
+    items = Object.entries(statsData.bySkill || {})
+      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
   } else if (currentTab === 'models') {
     items = Object.entries(statsData.byModel || {})
       .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
@@ -306,8 +303,7 @@ function renderRankings() {
   }
 
   const newSet = getNewSetForTab(currentTab);
-  const noteHtml = skillsNote ? `<div class="px-6 py-3 text-center text-xs text-slate-400 bg-slate-50">${skillsNote}</div>` : '';
-  body.innerHTML = noteHtml + items.map((item, i) => {
+  body.innerHTML = items.map((item, i) => {
     const isGold = i < 3;
     const isNew = newSet.has(item.name);
     const rowClass = isGold ? 'rank-gold' : '';
@@ -326,6 +322,7 @@ function renderRankings() {
 function getNewSetForTab(tab) {
   if (tab === 'mcp') return new Set(newlyFound.mcpServers);
   if (tab === 'tools') return new Set(newlyFound.tools);
+  if (tab === 'skills') return new Set(newlyFound.skills);
   if (tab === 'models') return new Set(newlyFound.models);
   return new Set();
 }
@@ -381,20 +378,31 @@ function computeNewlyFound() {
   const yMcp = new Set(yesterdayCalls.filter(c => c.isMcpCall && c.mcpServer).map(c => c.mcpServer));
   const yTool = new Set(yesterdayCalls.map(c => c.tool));
   const yModel = new Set(yesterdayCalls.filter(c => c.model).map(c => c.model));
+  const ySkill = new Set(yesterdayCalls.filter(c => c.isSkillCall && c.skillName).map(c => c.skillName));
 
   const tMcp = new Set(todayCalls.filter(c => c.isMcpCall && c.mcpServer).map(c => c.mcpServer));
   const tTool = new Set(todayCalls.map(c => c.tool));
   const tModel = new Set(todayCalls.filter(c => c.model).map(c => c.model));
+  const tSkill = new Set(todayCalls.filter(c => c.isSkillCall && c.skillName).map(c => c.skillName));
+
+  // Also use bySkill keys from statsData for skill detection
+  if (statsData && statsData.bySkill) {
+    const todaySkillKeys = Object.keys(statsData.bySkill);
+    // If statsData has bySkill, use those keys as today's skills
+    todaySkillKeys.forEach(k => tSkill.add(k));
+  }
 
   newlyFound.mcpServers = [...tMcp].filter(x => !yMcp.has(x));
   newlyFound.tools = [...tTool].filter(x => !yTool.has(x));
   newlyFound.models = [...tModel].filter(x => !yModel.has(x));
+  newlyFound.skills = [...tSkill].filter(x => !ySkill.has(x));
 }
 
 function renderNewlyFound() {
   const mcpEl = document.getElementById('newMcpList');
   const toolEl = document.getElementById('newToolList');
   const modelEl = document.getElementById('newModelList');
+  const skillEl = document.getElementById('newSkillList');
 
   mcpEl.innerHTML = newlyFound.mcpServers.length > 0
     ? newlyFound.mcpServers.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
@@ -407,6 +415,10 @@ function renderNewlyFound() {
   modelEl.innerHTML = newlyFound.models.length > 0
     ? newlyFound.models.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
     : '<p class="text-slate-400">今日无新增模型</p>';
+
+  skillEl.innerHTML = newlyFound.skills.length > 0
+    ? newlyFound.skills.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
+    : '<p class="text-slate-400">今日无新增 Skills</p>';
 }
 
 // --- Data Loading ---
@@ -435,6 +447,7 @@ async function loadData() {
     document.getElementById('newMcpList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
     document.getElementById('newToolList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
     document.getElementById('newModelList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
+    document.getElementById('newSkillList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
   }
 }
 

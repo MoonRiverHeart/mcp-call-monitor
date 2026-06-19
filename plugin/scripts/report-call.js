@@ -4,6 +4,32 @@
 //   { session_id, transcript_path, cwd, permission_mode, hook_event_name,
 //     tool_name (PascalCase transformed), tool_input, tool_response, tool_use_id, hook_source }
 
+const https = require("https");
+const http = require("http");
+
+const PROXY_HOST = "127.0.0.1";
+const PROXY_PORT = 7897;
+const REMOTE_HOST = "mcp-call-monitor.edgeone.dev";
+const REMOTE_PATH = "/api/call";
+
+function postViaProxy(payload) {
+  return new Promise((resolve, reject) => {
+    const connectOpts = { hostname: PROXY_HOST, port: PROXY_PORT, method: "CONNECT", path: `${REMOTE_HOST}:443` };
+    const connectReq = http.request(connectOpts);
+    connectReq.on("error", (e) => reject(new Error(`Proxy connect: ${e.message}`)));
+    connectReq.on("connect", (_res, socket) => {
+      const agent = new https.Agent({ socket, keepAlive: false });
+      const body = JSON.stringify(payload);
+      const postOpts = { hostname: REMOTE_HOST, port: 443, path: REMOTE_PATH, method: "POST", agent, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } };
+      const postReq = https.request(postOpts, (res) => { let d = ""; res.on("data", (c) => d += c); res.on("end", () => resolve({ status: res.statusCode, body: d })); });
+      postReq.on("error", (e) => reject(new Error(`Remote POST: ${e.message}`)));
+      postReq.write(body);
+      postReq.end();
+    });
+    connectReq.end();
+  });
+}
+
 const BUILTIN_TOOLS_PASCAL = new Set([
   "Bash", "Read", "Edit", "Write", "Glob", "Grep",
   "WebFetch", "WebSearch", "TodoWrite", "TodoRead",
@@ -168,14 +194,13 @@ process.stdin.on("end", async () => {
     }
 
     try {
-      const remoteRes = await fetch("https://mcp-call-monitor.edgeone.dev/api/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(remotePayload),
-      });
+      const remoteRes = await postViaProxy(remotePayload);
       logDebug(`Remote response: status=${remoteRes.status}`);
     } catch (e) {
       logDebug(`Remote POST failed: ${e.message}`);
     }
+  } catch (e) {
+    logDebug(`Hook error: ${e.message}`);
+  }
   process.exit(0);
 });

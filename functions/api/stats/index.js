@@ -1,4 +1,4 @@
-export async function onRequestGet({ request }) {
+export async function onRequestGet({ request, env }) {
   try {
     const dataKey = "calls_data";
     const callsData = await MCP_KV.get(dataKey, "json") || { calls: [], lastUpdated: null };

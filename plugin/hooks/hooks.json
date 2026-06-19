@@ -1,0 +1,3 @@
+{
+  "description": "Auto-record MCP/tool calls to mcp-call-monitor Express server - hooks registered via .claude/settings.local.json instead"
+}

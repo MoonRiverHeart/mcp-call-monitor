@@ -1,0 +1,6 @@
+{
+  "name": "mcp-call-monitor-plugin",
+  "type": "module",
+  "main": "index.js",
+  "version": "1.0.0"
+}

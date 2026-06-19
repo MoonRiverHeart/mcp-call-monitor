@@ -1,0 +1,6 @@
+node_modules/
+dist/
+data.json
+server/server.log
+server/server.err
+plugin/scripts/hook-debug.log

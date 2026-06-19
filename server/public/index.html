@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP 调用监控面板</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sidebar-w:220px;--sidebar-narrow:64px;
+  --bg-primary:#100C2A;--bg-secondary:#1B1A3A;--bg-sidebar:#141230;
+  --bg-card:#232244;--bg-card-hover:#2A2955;--bg-glass:rgba(35,34,68,0.75);
+  --border:#44436A;--border-subtle:#36355A;
+  --text-primary:#EEEEF6;--text-secondary:#A0A0BC;--text-muted:#7070A0;
+  --accent-blue:#5470c6;--accent-green:#91cc75;--accent-red:#ee6666;
+  --accent-purple:#9a60b4;--accent-cyan:#73c0de;--accent-yellow:#fac858;
+  --accent-orange:#fc8452;--accent-pink:#ea7ccc;--accent-gray:#7070A0;
+  --shadow:0 4px 24px rgba(16,12,42,0.6);
+  --radius:12px;--radius-sm:8px;--radius-xs:6px;
+  --transition:0.25s cubic-bezier(0.4,0,0.2,1);
+  --font:system-ui,-apple-system,'Segoe UI','Noto Sans SC',sans-serif;
+  --mono:'SF Mono','Cascadia Code','Fira Code',monospace;
+  --sidebar-active-bg:rgba(84,112,198,0.15);
+  --sidebar-active-border:#5470c6;
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff;--bg-secondary:#f5f5f5;--bg-sidebar:#f0f0f8;
+  --bg-card:#e8e8f0;--bg-card-hover:#d8d8e8;--bg-glass:rgba(232,232,240,0.75);
+  --border:#d0d0e0;--border-subtle:#e0e0ec;
+  --text-primary:#333355;--text-secondary:#666688;--text-muted:#9999bb;
+  --accent-blue:#4060b0;--accent-green:#7aaa60;--accent-red:#d05050;
+  --accent-purple:#8050a0;--accent-cyan:#60a8c0;--accent-yellow:#d8a840;
+  --accent-orange:#e07040;--accent-pink:#d068b0;--accent-gray:#808098;
+  --shadow:0 4px 24px rgba(100,100,140,0.15);
+  --sidebar-active-bg:rgba(64,96,176,0.12);
+  --sidebar-active-border:#4060b0;
+}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--bg-primary);color:var(--text-primary);min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased;display:flex;overflow:hidden}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-w);height:100vh;background:var(--bg-sidebar);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;transition:width 0.3s ease;overflow:hidden;position:relative;z-index:10}
+.sidebar.narrow{width:var(--sidebar-narrow)}
+.sidebar-header{padding:16px;display:flex;align-items:center;gap:12px;min-height:56px;border-bottom:1px solid var(--border-subtle)}
+.sidebar-logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent-blue),var(--accent-cyan));border-radius:var(--radius-xs);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0}
+.sidebar-brand{overflow:hidden;white-space:nowrap;transition:opacity 0.2s}
+.sidebar.narrow .sidebar-brand{opacity:0;width:0}
+.sidebar-brand-title{font-size:0.95rem;font-weight:600;letter-spacing:-0.01em}
+.sidebar-brand-sub{font-size:0.68rem;color:var(--text-muted)}
+.sidebar-status{display:flex;align-items:center;gap:6px;padding:8px 16px;font-size:0.72rem;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle);overflow:hidden;white-space:nowrap}
+.sidebar.narrow .sidebar-status .status-text{display:none}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-gray);flex-shrink:0;transition:background var(--transition)}
+.status-dot.connected{background:var(--accent-green);box-shadow:0 0 8px rgba(145,204,117,0.4)}
+.status-dot.disconnected{background:var(--accent-red);box-shadow:0 0 8px rgba(238,102,102,0.4)}
+.status-dot.polling{background:var(--accent-yellow);box-shadow:0 0 8px rgba(250,200,88,0.4)}
+
+.sidebar-nav{flex:1;padding:8px 0;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 16px;cursor:pointer;border-left:3px solid transparent;transition:all var(--transition);color:var(--text-secondary);font-size:0.85rem;font-weight:500;overflow:hidden;white-space:nowrap;border-radius:0}
+.nav-item:hover{background:var(--sidebar-active-bg);color:var(--text-primary)}
+.nav-item.active{background:var(--sidebar-active-bg);border-left-color:var(--sidebar-active-border);color:var(--text-primary)}
+.nav-item svg{width:18px;height:18px;flex-shrink:0}
+.nav-item .nav-label{transition:opacity 0.2s}
+.sidebar.narrow .nav-item .nav-label{opacity:0;width:0}
+.sidebar.narrow .nav-item{padding:10px 0;justify-content:center}
+
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:8px}
+.sidebar-footer-row{display:flex;align-items:center;gap:8px;overflow:hidden}
+.sidebar.narrow .sidebar-footer-row .footer-label{opacity:0;width:0}
+
+.btn-sm{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 10px;border-radius:var(--radius-xs);font-size:0.72rem;font-weight:500;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);cursor:pointer;transition:all var(--transition);font-family:var(--font);white-space:nowrap;overflow:hidden}
+.btn-sm:hover{background:var(--bg-card-hover);border-color:var(--text-muted)}
+.btn-sm:active{transform:scale(0.97)}
+.btn-sm svg{width:16px;height:16px;flex-shrink:0}
+.btn-sm.danger{border-color:rgba(238,102,102,0.3);color:var(--accent-red)}
+.btn-sm.danger:hover{background:rgba(238,102,102,0.12);border-color:var(--accent-red)}
+
+.sidebar-toggle{display:flex;align-items:center;justify-content:center;padding:8px;cursor:pointer;color:var(--text-muted);transition:color var(--transition);border-top:1px solid var(--border-subtle)}
+.sidebar-toggle:hover{color:var(--text-primary)}
+.sidebar-toggle svg{width:20px;height:20px;transition:transform 0.3s ease}
+.sidebar.narrow .sidebar-toggle svg{transform:rotate(180deg)}
+
+/* Main content */
+.main-content{flex:1;height:100vh;overflow-y:auto;padding:24px;transition:margin-left 0s}
+.view{display:none}
+.view.active{display:block}
+
+/* Metric cards */
+.metrics-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.metric-card{background:var(--bg-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:14px 16px;transition:all var(--transition);position:relative;overflow:hidden}
+.metric-card:hover{border-color:var(--border);transform:translateY(-1px);box-shadow:var(--shadow)}
+.metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;opacity:0.6}
+.metric-card.mcp::before{background:linear-gradient(90deg,var(--accent-blue),var(--accent-cyan))}
+.metric-card.tools::before{background:linear-gradient(90deg,var(--accent-purple),var(--accent-pink))}
+.metric-card.errors::before{background:linear-gradient(90deg,var(--accent-red),var(--accent-orange))}
+.metric-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.metric-label{font-size:0.72rem;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em}
+.metric-icon{width:28px;height:28px;border-radius:var(--radius-xs);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.metric-icon svg{width:16px;height:16px}
+.metric-icon.blue{background:rgba(84,112,198,0.15);color:var(--accent-blue)}
+.metric-icon.purple{background:rgba(154,96,180,0.15);color:var(--accent-purple)}
+.metric-icon.red{background:rgba(238,102,102,0.15);color:var(--accent-red)}
+.metric-value{font-size:1.6rem;font-weight:700;letter-spacing:-0.03em;line-height:1.1;margin-bottom:4px}
+.metric-breakdown{display:flex;gap:12px;font-size:0.72rem}
+.metric-breakdown-item{display:flex;align-items:center;gap:4px}
+.metric-breakdown-dot{width:5px;height:5px;border-radius:50%}
+.metric-breakdown-dot.green{background:var(--accent-green)}
+.metric-breakdown-dot.red{background:var(--accent-red)}
+.metric-breakdown-val{font-weight:600;color:var(--text-primary)}
+.metric-breakdown-lbl{color:var(--text-muted)}
+
+/* Charts */
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.chart-card{background:var(--bg-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;transition:all var(--transition)}
+.chart-card:hover{border-color:var(--border)}
+.chart-card.full{grid-column:1/-1}
+.chart-title{font-size:0.72rem;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px}
+.chart-box{width:100%;height:260px}
+.chart-box.bar{height:280px}
+
+/* Badge section */
+.badge-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.badge-card{background:var(--bg-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;transition:all var(--transition)}
+.badge-card:hover{border-color:var(--border)}
+.badge-card-title{font-size:0.68rem;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}
+.badge-preview{display:flex;align-items:center;min-height:20px;margin-bottom:8px}
+.badge-preview img{height:18px}
+.badge-copy-row{display:flex;gap:4px}
+.badge-copy-btn{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:var(--radius-xs);font-size:0.68rem;font-weight:500;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);cursor:pointer;transition:all var(--transition);font-family:var(--font)}
+.badge-copy-btn:hover{background:var(--bg-card-hover)}
+.badge-copy-btn:active{transform:scale(0.97)}
+.badge-style-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.badge-style-row label{font-size:0.72rem;color:var(--text-secondary);font-weight:500}
+.badge-style-row select{padding:4px 8px;border-radius:var(--radius-xs);background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);font-size:0.72rem;font-family:var(--font);outline:none;cursor:pointer}
+
+/* Session analysis */
+.session-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;height:calc(100vh - 48px)}
+.session-list{background:var(--bg-glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow-y:auto;padding:8px}
+.session-item{padding:10px 12px;border-radius:var(--radius-xs);cursor:pointer;transition:all var(--transition);border:1px solid transparent;margin-bottom:4px}
+.session-item:hover{background:var(--bg-card-hover);border-color:var(--border-subtle)}
+.session-item.active{background:var(--sidebar-active-bg);border-color:var(--sidebar-active-border)}
+.session-id{font-family:var(--mono);font-size:0.72rem;color:var(--accent-cyan);margin-bottom:2px}
+.session-meta{font-size:0.68rem;color:var(--text-muted)}
+.session-detail{overflow-y:auto}
+.session-detail-title{font-size:0.85rem;font-weight:600;margin-bottom:12px;color:var(--text-primary)}
+.session-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.session-empty{display:flex;align-items:center;justify-content:center;height:200px;color:var(--text-muted);font-size:0.85rem}
+
+/* Date trend */
+.trend-charts{display:grid;grid-template-columns:1fr;gap:12px}
+.trend-filter{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.trend-filter label{font-size:0.72rem;color:var(--text-secondary);font-weight:500}
+.trend-filter input{padding:4px 8px;border-radius:var(--radius-xs);background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);font-size:0.72rem;font-family:var(--mono);outline:none;width:120px}
+
+/* Error table */
+.error-table-wrap{background:var(--bg-glass);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden}
+.error-table{width:100%;border-collapse:collapse;font-size:0.82rem}
+.error-table thead{background:var(--bg-secondary)}
+.error-table th{padding:8px 14px;text-align:left;font-weight:500;font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.error-table td{padding:8px 14px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
+.error-table tr:last-child td{border-bottom:none}
+.error-table tbody tr{transition:background var(--transition);cursor:pointer}
+.error-table tbody tr:hover{background:var(--bg-card-hover)}
+.error-table tbody tr.expanded{background:var(--bg-card)}
+
+.badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:0.7rem;font-weight:600;letter-spacing:0.02em;white-space:nowrap}
+.badge-timeout{background:rgba(252,132,82,0.15);color:var(--accent-orange)}
+.badge-permission_denied{background:rgba(154,96,180,0.15);color:var(--accent-purple)}
+.badge-network_error{background:rgba(238,102,102,0.15);color:var(--accent-red)}
+.badge-invalid_response{background:rgba(250,200,88,0.15);color:var(--accent-yellow)}
+.badge-auth_expired{background:rgba(234,124,204,0.15);color:var(--accent-pink)}
+.badge-unknown{background:rgba(112,112,160,0.15);color:var(--accent-gray)}
+
+.mcp-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:20px;font-size:0.7rem;font-weight:500;background:rgba(84,112,198,0.1);color:var(--accent-blue);border:1px solid rgba(84,112,198,0.2)}
+.mcp-badge svg{width:12px;height:12px}
+
+.session-link{font-family:var(--mono);font-size:0.75rem;color:var(--accent-cyan);text-decoration:none;transition:color var(--transition)}
+.session-link:hover{color:var(--accent-blue);text-decoration:underline}
+
+.ts-cell{font-family:var(--mono);font-size:0.72rem;color:var(--text-muted);white-space:nowrap}
+
+.error-detail-row{display:none}
+.error-detail-row.open{display:table-row}
+.error-detail-cell{padding:0 14px 12px 14px!important;background:var(--bg-primary)}
+.error-detail-inner{background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:var(--radius-xs);padding:12px 14px;margin-top:-4px}
+.error-detail-label{font-size:0.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px}
+.error-detail-msg{font-family:var(--mono);font-size:0.78rem;color:var(--accent-red);line-height:1.5;word-break:break-all;margin-bottom:10px}
+.error-detail-analysis{font-size:0.78rem;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap}
+
+.expand-icon{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;transition:transform var(--transition);color:var(--text-muted)}
+.expand-icon.open{transform:rotate(90deg)}
+.expand-icon svg{width:14px;height:14px}
+
+.empty-state{padding:40px 24px;text-align:center;color:var(--text-muted)}
+.empty-state svg{width:40px;height:40px;margin-bottom:10px;opacity:0.4}
+.empty-state p{font-size:0.85rem}
+
+/* Settings modal */
+.settings-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);animation:fadeIn 0.2s ease}
+.settings-overlay.open{display:flex;align-items:center;justify-content:center}
+.settings-panel{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:90%;max-width:460px;box-shadow:0 24px 80px rgba(0,0,0,0.6);animation:slideUp 0.25s ease}
+.settings-title{font-size:1rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.settings-title svg{width:18px;height:18px;color:var(--text-secondary)}
+.settings-field{margin-bottom:14px}
+.settings-label{display:block;font-size:0.78rem;font-weight:500;color:var(--text-secondary);margin-bottom:6px}
+.settings-input{width:100%;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-xs);color:var(--text-primary);font-size:0.85rem;font-family:var(--mono);transition:border-color var(--transition);outline:none}
+.settings-input:focus{border-color:var(--accent-blue)}
+.settings-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:var(--radius-xs);font-size:0.8rem;font-weight:500;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);cursor:pointer;transition:all var(--transition);font-family:var(--font);white-space:nowrap}
+.btn:hover{background:var(--bg-card-hover);border-color:var(--text-muted)}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+
+/* Toast */
+.toast-container{position:fixed;bottom:24px;right:24px;z-index:300;display:flex;flex-direction:column;gap:8px}
+.toast{padding:10px 18px;border-radius:var(--radius-sm);font-size:0.82rem;background:var(--bg-card);border:1px solid var(--border);box-shadow:var(--shadow);animation:slideIn 0.3s ease;display:flex;align-items:center;gap:8px}
+.toast-success{border-color:rgba(145,204,117,0.3)}
+.toast-error{border-color:rgba(238,102,102,0.3)}
+.toast svg{width:16px;height:16px;flex-shrink:0}
+.toast-success svg{color:var(--accent-green)}
+.toast-error svg{color:var(--accent-red)}
+
+/* Animations */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+
+/* Responsive */
+@media(max-width:900px){
+  .metrics-row{grid-template-columns:1fr}
+  .charts-row{grid-template-columns:1fr}
+  .badge-row{grid-template-columns:1fr 1fr}
+  .session-layout{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .sidebar{width:var(--sidebar-narrow)}
+  .sidebar .sidebar-brand{opacity:0;width:0}
+  .sidebar .nav-item .nav-label{opacity:0;width:0}
+  .sidebar .nav-item{padding:10px 0;justify-content:center}
+  .sidebar .sidebar-status .status-text{display:none}
+  .sidebar .sidebar-footer-row .footer-label{opacity:0;width:0}
+  .sidebar .sidebar-toggle svg{transform:rotate(180deg)}
+  .badge-row{grid-template-columns:1fr}
+  .session-charts{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">M</div>
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">MCP Monitor</div>
+      <div class="sidebar-brand-sub">调用监控面板</div>
+    </div>
+  </div>
+  <div class="sidebar-status" id="sidebarStatus">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-text" id="statusText">连接中...</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-item active" data-view="overview" onclick="switchView('overview')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span class="nav-label">概览</span>
+    </div>
+    <div class="nav-item" data-view="session" onclick="switchView('session')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span class="nav-label">Session 分析</span>
+    </div>
+    <div class="nav-item" data-view="trend" onclick="switchView('trend')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span class="nav-label">日期趋势</span>
+    </div>
+    <div class="nav-item" data-view="errors" onclick="switchView('errors')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span class="nav-label">错误详情</span>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="sidebar-footer-row">
+      <button class="btn-sm" onclick="toggleTheme()" title="切换主题" id="themeBtn">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <span class="footer-label" id="themeLabel">深色</span>
+      </button>
+      <button class="btn-sm" onclick="openSettings()" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="footer-label">设置</span>
+      </button>
+      <button class="btn-sm danger" onclick="resetErrors()" title="重置数据">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span class="footer-label">重置</span>
+      </button>
+    </div>
+  </div>
+  <div class="sidebar-toggle" onclick="toggleSidebar()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<div class="main-content" id="mainContent">
+
+  <!-- Overview View -->
+  <div class="view active" id="view-overview">
+    <div class="metrics-row">
+      <div class="metric-card mcp">
+        <div class="metric-top">
+          <span class="metric-label">MCP 调用</span>
+          <div class="metric-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+        </div>
+        <div class="metric-value" id="mcpTotal">--</div>
+        <div class="metric-breakdown">
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot green"></span><span class="metric-breakdown-val" id="mcpSuccess">--</span><span class="metric-breakdown-lbl">成功</span></span>
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot red"></span><span class="metric-breakdown-val" id="mcpError">--</span><span class="metric-breakdown-lbl">失败</span></span>
+        </div>
+      </div>
+      <div class="metric-card tools">
+        <div class="metric-top">
+          <span class="metric-label">工具调用</span>
+          <div class="metric-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        </div>
+        <div class="metric-value" id="toolTotal">--</div>
+        <div class="metric-breakdown">
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot green"></span><span class="metric-breakdown-val" id="toolSuccess">--</span><span class="metric-breakdown-lbl">成功</span></span>
+          <span class="metric-breakdown-item"><span class="metric-breakdown-dot red"></span><span class="metric-breakdown-val" id="toolError">--</span><span class="metric-breakdown-lbl">失败</span></span>
+        </div>
+      </div>
+      <div class="metric-card errors">
+        <div class="metric-top">
+          <span class="metric-label">总错误</span>
+          <div class="metric-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+        </div>
+        <div class="metric-value" id="totalErrors" style="color:var(--accent-red)">--</div>
+        <div class="metric-breakdown">
+          <span class="metric-breakdown-item"><span class="metric-breakdown-val" id="errorListCount" style="color:var(--text-muted)">--</span><span class="metric-breakdown-lbl">条记录</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">MCP 调用分布</div>
+        <div class="chart-box" id="chart-mcp"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">工具调用分布</div>
+        <div class="chart-box" id="chart-tools"></div>
+      </div>
+    </div>
+    <div class="charts-row">
+      <div class="chart-card full">
+        <div class="chart-title">各 MCP 服务器调用统计</div>
+        <div class="chart-box bar" id="chart-servers"></div>
+      </div>
+    </div>
+
+    <div class="badge-style-row">
+      <label for="badgeStyle">Badge 样式：</label>
+      <select id="badgeStyle" onchange="updateBadgePreviews()">
+        <option value="flat">Flat</option>
+        <option value="rounded">Rounded</option>
+      </select>
+    </div>
+    <div class="badge-row">
+      <div class="badge-card">
+        <div class="badge-card-title">MCP 调用</div>
+        <div class="badge-preview"><img id="badge-mcp-img" alt="MCP"/></div>
+        <div class="badge-copy-row">
+          <button class="badge-copy-btn" onclick="copyBadgeUrl('mcp')">URL</button>
+          <button class="badge-copy-btn" onclick="copyBadgeMarkdown('mcp')">MD</button>
+          <button class="badge-copy-btn" onclick="copyBadgeHtml('mcp')">HTML</button>
+        </div>
+      </div>
+      <div class="badge-card">
+        <div class="badge-card-title">工具调用</div>
+        <div class="badge-preview"><img id="badge-tools-img" alt="Tools"/></div>
+        <div class="badge-copy-row">
+          <button class="badge-copy-btn" onclick="copyBadgeUrl('tools')">URL</button>
+          <button class="badge-copy-btn" onclick="copyBadgeMarkdown('tools')">MD</button>
+          <button class="badge-copy-btn" onclick="copyBadgeHtml('tools')">HTML</button>
+        </div>
+      </div>
+      <div class="badge-card">
+        <div class="badge-card-title">错误统计</div>
+        <div class="badge-preview"><img id="badge-errors-img" alt="Errors"/></div>
+        <div class="badge-copy-row">
+          <button class="badge-copy-btn" onclick="copyBadgeUrl('errors')">URL</button>
+          <button class="badge-copy-btn" onclick="copyBadgeMarkdown('errors')">MD</button>
+          <button class="badge-copy-btn" onclick="copyBadgeHtml('errors')">HTML</button>
+        </div>
+      </div>
+      <div class="badge-card">
+        <div class="badge-card-title">综合概览</div>
+        <div class="badge-preview"><img id="badge-summary-img" alt="Summary"/></div>
+        <div class="badge-copy-row">
+          <button class="badge-copy-btn" onclick="copyBadgeUrl('summary')">URL</button>
+          <button class="badge-copy-btn" onclick="copyBadgeMarkdown('summary')">MD</button>
+          <button class="badge-copy-btn" onclick="copyBadgeHtml('summary')">HTML</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Analysis View -->
+  <div class="view" id="view-session">
+    <div class="session-layout">
+      <div class="session-list" id="sessionList"></div>
+      <div class="session-detail" id="sessionDetail">
+        <div class="session-detail-title" id="sessionDetailTitle">选择一个 Session</div>
+        <div class="session-charts" id="sessionCharts">
+          <div class="chart-card">
+            <div class="chart-title">MCP 调用分布</div>
+            <div class="chart-box" id="chart-session-mcp"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">工具调用分布</div>
+            <div class="chart-box" id="chart-session-tools"></div>
+          </div>
+          <div class="chart-card full">
+            <div class="chart-title">Session 错误类型</div>
+            <div class="chart-box" id="chart-session-errors"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Date Trend View -->
+  <div class="view" id="view-trend">
+    <div class="trend-filter">
+      <label>日期范围：</label>
+      <input type="date" id="trendFrom" onchange="updateTrendCharts()"/>
+      <label>至</label>
+      <input type="date" id="trendTo" onchange="updateTrendCharts()"/>
+    </div>
+    <div class="trend-charts">
+      <div class="chart-card">
+        <div class="chart-title">每日调用趋势</div>
+        <div class="chart-box bar" id="chart-trend-line"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">每日错误类型分布</div>
+        <div class="chart-box bar" id="chart-trend-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Details View -->
+  <div class="view" id="view-errors">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:0.85rem;font-weight:600;display:flex;align-items:center;gap:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;color:var(--text-secondary)"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        错误详情
+        <span class="badge" style="background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border-subtle)" id="errorCount">0 条</span>
+      </div>
+    </div>
+    <div class="error-table-wrap">
+      <table class="error-table">
+        <thead><tr>
+          <th style="width:28px"></th>
+          <th>错误类型</th>
+          <th>MCP 服务器</th>
+          <th>工具名称</th>
+          <th>错误消息</th>
+          <th>对话链接</th>
+          <th>时间</th>
+        </tr></thead>
+        <tbody id="errorBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <p>暂无错误记录</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Overlay -->
+<div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsOnOutside(event)">
+  <div class="settings-panel">
+    <div class="settings-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      设置
+    </div>
+    <div class="settings-field">
+      <label class="settings-label" for="apiUrl">API 服务器地址</label>
+      <input class="settings-input" id="apiUrl" type="text" placeholder="http://localhost:3210" spellcheck="false"/>
+    </div>
+    <div class="settings-actions">
+      <button class="btn" onclick="closeSettings()">取消</button>
+      <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ============================================================
+// Theme
+// ============================================================
+let currentTheme = localStorage.getItem('mcp_monitor_theme') || 'dark';
+
+function getChartColors() {
+  const isLight = currentTheme === 'light';
+  return {
+    bg: isLight ? '#ffffff' : '#100C2A',
+    text: isLight ? '#333355' : '#EEEEF6',
+    subtext: isLight ? '#666688' : '#A0A0BC',
+    border: isLight ? '#d0d0e0' : '#44436A',
+    splitLine: isLight ? '#e0e0ec' : '#36355A',
+    shadowColor: isLight ? 'rgba(100,100,140,0.3)' : 'rgba(16,12,42,0.5)',
+    palette: isLight
+      ? ['#4060b0','#7aaa60','#d05050','#8050a0','#60a8c0','#d8a840','#e07040','#d068b0','#808098']
+      : ['#5470c6','#91cc75','#ee6666','#9a60b4','#73c0de','#fac858','#fc8452','#ea7ccc','#7070A0'],
+  };
+}
+
+function setTheme(themeName) {
+  currentTheme = themeName;
+  document.documentElement.setAttribute('data-theme', themeName);
+  localStorage.setItem('mcp_monitor_theme', themeName);
+  updateThemeIcon();
+  reinitAllCharts();
+  updateBadgePreviews();
+}
+
+function toggleTheme() {
+  setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+function updateThemeIcon() {
+  const icon = document.getElementById('themeIcon');
+  const label = document.getElementById('themeLabel');
+  if (!icon) return;
+  if (currentTheme === 'light') {
+    icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+    if (label) label.textContent = '浅色';
+  } else {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+    if (label) label.textContent = '深色';
+  }
+}
+
+// ============================================================
+// Sidebar
+// ============================================================
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('narrow');
+  // Resize charts after transition
+  setTimeout(resizeAllCharts, 350);
+}
+
+function switchView(viewName) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelector(`.nav-item[data-view="${viewName}"]`).classList.add('active');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + viewName).classList.add('active');
+  // Initialize view-specific charts
+  if (viewName === 'session') initSessionView();
+  if (viewName === 'trend') initTrendView();
+  setTimeout(resizeAllCharts, 100);
+}
+
+// ============================================================
+// Chart registry & management
+// ============================================================
+const chartInstances = {};
+
+function createChart(domId) {
+  const dom = document.getElementById(domId);
+  if (!dom) return null;
+  if (chartInstances[domId]) { chartInstances[domId].dispose(); }
+  const chart = echarts.init(dom);
+  chartInstances[domId] = chart;
+  return chart;
+}
+
+function disposeChart(domId) {
+  if (chartInstances[domId]) { chartInstances[domId].dispose(); delete chartInstances[domId]; }
+}
+
+function reinitAllCharts() {
+  // Dispose all
+  Object.keys(chartInstances).forEach(disposeChart);
+  // Reinit overview charts
+  initOverviewCharts();
+  if (statsData) {
+    updateOverviewFromStats(statsData);
+    updateOverviewFromErrors(errorsData);
+  }
+  // Reinit session/trend if their views are active
+  if (document.getElementById('view-session').classList.contains('active')) initSessionView();
+  if (document.getElementById('view-trend').classList.contains('active')) initTrendView();
+}
+
+function resizeAllCharts() {
+  Object.values(chartInstances).forEach(c => { if (c) c.resize(); });
+}
+
+window.addEventListener('resize', () => setTimeout(resizeAllCharts, 100));
+
+// ============================================================
+// Overview Charts
+// ============================================================
+const ERROR_TYPE_COLORS_DARK = { timeout:'#fc8452', permission_denied:'#9a60b4', network_error:'#ee6666', invalid_response:'#fac858', auth_expired:'#ea7ccc', unknown:'#7070A0' };
+const ERROR_TYPE_COLORS_LIGHT = { timeout:'#e07040', permission_denied:'#8050a0', network_error:'#d05050', invalid_response:'#d8a840', auth_expired:'#d068b0', unknown:'#808098' };
+
+function getErrorTypeColor(type) {
+  const map = currentTheme === 'light' ? ERROR_TYPE_COLORS_LIGHT : ERROR_TYPE_COLORS_DARK;
+  return map[type] || map.unknown;
+}
+
+function initOverviewCharts() {
+  const c = getChartColors();
+  const base = { backgroundColor: c.bg, textStyle: { color: c.text, fontFamily: 'system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif' } };
+
+  const pieBase = {
+    ...base,
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['40%','70%'], center: ['50%','55%'],
+      itemStyle: { borderColor: c.bg, borderWidth: 2 },
+      label: { color: c.text, fontSize: 12 },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: c.shadowColor } },
+    }],
+  };
+
+  const chartMcp = createChart('chart-mcp');
+  if (chartMcp) chartMcp.setOption({ ...pieBase, series: [{ ...pieBase.series[0], data: [
+    { name:'成功', value:0, itemStyle:{color:c.palette[1]} },
+    { name:'失败', value:0, itemStyle:{color:c.palette[2]} },
+  ]}] });
+
+  const chartTools = createChart('chart-tools');
+  if (chartTools) chartTools.setOption({ ...pieBase, series: [{ ...pieBase.series[0], data: [
+    { name:'成功', value:0, itemStyle:{color:c.palette[1]} },
+    { name:'失败', value:0, itemStyle:{color:c.palette[2]} },
+  ]}] });
+
+  const chartServers = createChart('chart-servers');
+  if (chartServers) chartServers.setOption({
+    ...base,
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['成功','失败'], textStyle: { color: c.subtext }, top: 0 },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '40', containLabel: true },
+    xAxis: { type: 'category', data: [], axisLabel: { color: c.subtext, fontSize: 11, rotate: 15 }, axisLine: { lineStyle: { color: c.border } } },
+    yAxis: { type: 'value', axisLabel: { color: c.subtext }, axisLine: { lineStyle: { color: c.border } }, splitLine: { lineStyle: { color: c.splitLine } } },
+    series: [
+      { name:'成功', type:'bar', stack:'calls', itemStyle:{color:c.palette[1], borderRadius:[4,4,0,0]}, data:[] },
+      { name:'失败', type:'bar', stack:'calls', itemStyle:{color:c.palette[2], borderRadius:[4,4,0,0]}, data:[] },
+    ],
+  });
+}
+
+function updateOverviewFromStats(data) {
+  if (!data) return;
+  const c = getChartColors();
+  const chartMcp = chartInstances['chart-mcp'];
+  const chartTools = chartInstances['chart-tools'];
+  if (chartMcp) chartMcp.setOption({ series: [{ data: [
+    { name:'成功', value: data.mcpCalls?.success ?? 0, itemStyle:{color:c.palette[1]} },
+    { name:'失败', value: data.mcpCalls?.error ?? 0, itemStyle:{color:c.palette[2]} },
+  ]}] });
+  if (chartTools) chartTools.setOption({ series: [{ data: [
+    { name:'成功', value: data.toolCalls?.success ?? 0, itemStyle:{color:c.palette[1]} },
+    { name:'失败', value: data.toolCalls?.error ?? 0, itemStyle:{color:c.palette[2]} },
+  ]}] });
+}
+
+function updateOverviewFromErrors(errors) {
+  if (!errors) return;
+  const chartServers = chartInstances['chart-servers'];
+  if (!chartServers) return;
+  const c = getChartColors();
+  const serverStats = {};
+  errors.forEach(err => {
+    const s = err.mcpServer || 'unknown';
+    if (!serverStats[s]) serverStats[s] = { success:0, error:0 };
+    serverStats[s].error++;
+  });
+  if (statsData) {
+    const mcpDetail = statsData.mcpServerStats || {};
+    Object.entries(mcpDetail).forEach(([server, info]) => {
+      if (!serverStats[server]) serverStats[server] = { success:0, error:0 };
+      serverStats[server].success = info.success ?? 0;
+      if (info.error) serverStats[server].error = info.error;
+    });
+  }
+  const servers = Object.keys(serverStats);
+  chartServers.setOption({
+    xAxis: { data: servers },
+    series: [{ data: servers.map(s => serverStats[s].success) }, { data: servers.map(s => serverStats[s].error) }],
+  });
+}
+
+// ============================================================
+// Session Analysis
+// ============================================================
+let selectedSessionId = null;
+let sessionChartInited = false;
+
+function initSessionView() {
+  renderSessionList();
+  if (!sessionChartInited) {
+    initSessionCharts();
+    sessionChartInited = true;
+  }
+  if (selectedSessionId) renderSessionDetail(selectedSessionId);
+}
+
+function initSessionCharts() {
+  const c = getChartColors();
+  const base = { backgroundColor: c.bg, textStyle: { color: c.text, fontFamily: 'system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif' } };
+  const pieBase = {
+    ...base,
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['40%','70%'], center: ['50%','55%'],
+      itemStyle: { borderColor: c.bg, borderWidth: 2 },
+      label: { color: c.text, fontSize: 12 },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: c.shadowColor } },
+    }],
+  };
+
+  createChart('chart-session-mcp')?.setOption({ ...pieBase, series: [{ ...pieBase.series[0], data: [] }] });
+  createChart('chart-session-tools')?.setOption({ ...pieBase, series: [{ ...pieBase.series[0], data: [] }] });
+  createChart('chart-session-errors')?.setOption({ ...pieBase, series: [{ ...pieBase.series[0], data: [] }] });
+}
+
+function renderSessionList() {
+  const list = document.getElementById('sessionList');
+  if (!list) return;
+  // Group errors by sessionId
+  const sessions = {};
+  errorsData.forEach(err => {
+    const sid = err.sessionId || 'unknown';
+    if (!sessions[sid]) sessions[sid] = { count: 0, errors: [], latest: err.timestamp };
+    sessions[sid].count++;
+    sessions[sid].errors.push(err);
+    if (err.timestamp && (!sessions[sid].latest || err.timestamp > sessions[sid].latest)) sessions[sid].latest = err.timestamp;
+  });
+  // Sort by latest timestamp descending
+  const sorted = Object.entries(sessions).sort((a,b) => (b[1].latest || '').localeCompare(a[1].latest || ''));
+
+  if (sorted.length === 0) {
+    list.innerHTML = '<div class="session-empty">暂无 Session 数据</div>';
+    return;
+  }
+
+  let html = '';
+  sorted.forEach(([sid, info]) => {
+    const isActive = sid === selectedSessionId ? ' active' : '';
+    html += `<div class="session-item${isActive}" onclick="selectSession('${sid}')">
+      <div class="session-id">${truncate(sid, 20)}</div>
+      <div class="session-meta">${formatTimeShort(info.latest)} / ${info.count} 错误</div>
+    </div>`;
+  });
+  list.innerHTML = html;
+
+  // Auto-select most recent
+  if (!selectedSessionId && sorted.length > 0) {
+    selectSession(sorted[0][0]);
+  }
+}
+
+function selectSession(sid) {
+  selectedSessionId = sid;
+  // Update active state
+  document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+  const items = document.querySelectorAll('.session-item');
+  items.forEach(el => {
+    if (el.querySelector('.session-id') && el.querySelector('.session-id').textContent.includes(truncate(sid, 20))) {
+      el.classList.add('active');
+    }
+  });
+  renderSessionDetail(sid);
+}
+
+function renderSessionDetail(sid) {
+  const title = document.getElementById('sessionDetailTitle');
+  if (title) title.textContent = 'Session: ' + truncate(sid, 30);
+
+  const c = getChartColors();
+  const sessionErrors = errorsData.filter(e => (e.sessionId || 'unknown') === sid);
+
+  // MCP calls pie for this session
+  const mcpPie = chartInstances['chart-session-mcp'];
+  if (mcpPie) {
+    // Estimate from errors: we only have error counts per session
+    const mcpErrorCount = sessionErrors.length;
+    // If statsData has per-session info, use it; otherwise estimate
+    const mcpSuccessEstimate = Math.max(0, (statsData?.mcpCalls?.success ?? 0) - mcpErrorCount);
+    mcpPie.setOption({ series: [{ data: [
+      { name:'成功(估算)', value: mcpSuccessEstimate, itemStyle:{color:c.palette[1]} },
+      { name:'失败', value: mcpErrorCount, itemStyle:{color:c.palette[2]} },
+    ]}] });
+  }
+
+  // Tools calls pie
+  const toolsPie = chartInstances['chart-session-tools'];
+  if (toolsPie) {
+    const toolErrorCount = sessionErrors.length;
+    const toolSuccessEstimate = Math.max(0, (statsData?.toolCalls?.success ?? 0) - toolErrorCount);
+    toolsPie.setOption({ series: [{ data: [
+      { name:'成功(估算)', value: toolSuccessEstimate, itemStyle:{color:c.palette[1]} },
+      { name:'失败', value: toolErrorCount, itemStyle:{color:c.palette[2]} },
+    ]}] });
+  }
+
+  // Error types pie
+  const errorsPie = chartInstances['chart-session-errors'];
+  if (errorsPie) {
+    const typeCounts = {};
+    sessionErrors.forEach(err => {
+      const t = err.errorType || err.type || 'unknown';
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    const pieData = Object.entries(typeCounts).map(([type, count]) => ({
+      name: type, value: count, itemStyle: { color: getErrorTypeColor(type) },
+    }));
+    errorsPie.setOption({ series: [{ data: pieData }] });
+  }
+}
+
+// ============================================================
+// Date Trend
+// ============================================================
+let trendChartInited = false;
+
+function initTrendView() {
+  if (!trendChartInited) {
+    initTrendCharts();
+    trendChartInited = true;
+  }
+  updateTrendCharts();
+}
+
+function initTrendCharts() {
+  const c = getChartColors();
+  const base = { backgroundColor: c.bg, textStyle: { color: c.text, fontFamily: 'system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif' } };
+
+  createChart('chart-trend-line')?.setOption({
+    ...base,
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['MCP 调用','工具调用','错误'], textStyle: { color: c.subtext }, top: 0 },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '40', containLabel: true },
+    xAxis: { type: 'category', data: [], axisLabel: { color: c.subtext, fontSize: 11 }, axisLine: { lineStyle: { color: c.border } } },
+    yAxis: { type: 'value', axisLabel: { color: c.subtext }, axisLine: { lineStyle: { color: c.border } }, splitLine: { lineStyle: { color: c.splitLine } } },
+    series: [
+      { name:'MCP 调用', type:'line', smooth: true, itemStyle:{color:c.palette[0]}, lineStyle:{color:c.palette[0]}, data:[] },
+      { name:'工具调用', type:'line', smooth: true, itemStyle:{color:c.palette[3]}, lineStyle:{color:c.palette[3]}, data:[] },
+      { name:'错误', type:'line', smooth: true, itemStyle:{color:c.palette[2]}, lineStyle:{color:c.palette[2]}, data:[] },
+    ],
+  });
+
+  createChart('chart-trend-bar')?.setOption({
+    ...base,
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: [], textStyle: { color: c.subtext }, top: 0 },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '40', containLabel: true },
+    xAxis: { type: 'category', data: [], axisLabel: { color: c.subtext, fontSize: 11 }, axisLine: { lineStyle: { color: c.border } } },
+    yAxis: { type: 'value', axisLabel: { color: c.subtext }, axisLine: { lineStyle: { color: c.border } }, splitLine: { lineStyle: { color: c.splitLine } } },
+    series: [],
+  });
+}
+
+function updateTrendCharts() {
+  const c = getChartColors();
+  // Group errors by date
+  const dateMap = {};
+  errorsData.forEach(err => {
+    if (!err.timestamp) return;
+    const d = new Date(err.timestamp);
+    if (isNaN(d.getTime())) return;
+    const dateKey = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    if (!dateMap[dateKey]) dateMap[dateKey] = { errors: 0, types: {} };
+    dateMap[dateKey].errors++;
+    const t = err.errorType || err.type || 'unknown';
+    dateMap[dateKey].types[t] = (dateMap[dateKey].types[t] || 0) + 1;
+  });
+
+  // Apply date filter
+  const fromVal = document.getElementById('trendFrom')?.value;
+  const toVal = document.getElementById('trendTo')?.value;
+  let dates = Object.keys(dateMap).sort();
+  if (fromVal) dates = dates.filter(d => d >= fromVal);
+  if (toVal) dates = dates.filter(d => d <= toVal);
+
+  // If no dates, show at least today
+  if (dates.length === 0) {
+    const today = new Date().toISOString().slice(0,10);
+    dates = [today];
+    dateMap[today] = { errors: 0, types: {} };
+  }
+
+  // Line chart data
+  const mcpData = dates.map(d => statsData?.mcpCalls?.total ?? 0);
+  const toolData = dates.map(d => statsData?.toolCalls?.total ?? 0);
+  const errorData = dates.map(d => dateMap[d]?.errors ?? 0);
+
+  const lineChart = chartInstances['chart-trend-line'];
+  if (lineChart) {
+    lineChart.setOption({
+      xAxis: { data: dates },
+      series: [{ data: mcpData }, { data: toolData }, { data: errorData }],
+    });
+  }
+
+  // Stacked bar: error types per day
+  const allTypes = new Set();
+  dates.forEach(d => { Object.keys(dateMap[d]?.types || {}).forEach(t => allTypes.add(t)); });
+  const typeList = Array.from(allTypes);
+  const barSeries = typeList.map(type => ({
+    name: type, type: 'bar', stack: 'errors',
+    itemStyle: { color: getErrorTypeColor(type), borderRadius: [2,2,0,0] },
+    data: dates.map(d => dateMap[d]?.types?.[type] ?? 0),
+  }));
+
+  const barChart = chartInstances['chart-trend-bar'];
+  if (barChart) {
+    barChart.setOption({
+      legend: { data: typeList },
+      xAxis: { data: dates },
+      series: barSeries,
+    });
+  }
+}
+
+// ============================================================
+// Badge Generator
+// ============================================================
+function getBadgeBaseUrl(type) {
+  const style = document.getElementById('badgeStyle')?.value || 'flat';
+  return API_BASE_URL.replace(/\/+$/, '') + '/api/badge/' + type + '?style=' + style + '&theme=' + currentTheme;
+}
+
+function updateBadgePreviews() {
+  ['mcp','tools','errors','summary'].forEach(type => {
+    const img = document.getElementById('badge-' + type + '-img');
+    if (img) img.src = getBadgeBaseUrl(type);
+  });
+}
+
+function copyBadgeUrl(type) {
+  navigator.clipboard.writeText(getBadgeBaseUrl(type)).then(() => showToast('已复制 Badge URL','success')).catch(() => showToast('复制失败','error'));
+}
+function copyBadgeMarkdown(type) {
+  const url = getBadgeBaseUrl(type);
+  navigator.clipboard.writeText(`![${type}](${url})`).then(() => showToast('已复制 Markdown','success')).catch(() => showToast('复制失败','error'));
+}
+function copyBadgeHtml(type) {
+  const url = getBadgeBaseUrl(type);
+  navigator.clipboard.writeText(`<img src="${url}" alt="${type}" />`).then(() => showToast('已复制 HTML','success')).catch(() => showToast('复制失败','error'));
+}
+
+// ============================================================
+// Configuration
+// ============================================================
+const DEFAULT_API_URL = 'http://localhost:3210';
+let API_BASE_URL = localStorage.getItem('mcp_monitor_api_url') || DEFAULT_API_URL;
+
+// ============================================================
+// State
+// ============================================================
+let statsData = null;
+let errorsData = [];
+let sseClient = null;
+let pollTimer = null;
+let connectionMode = 'disconnected';
+let isResetting = false;
+
+// ============================================================
+// Utility
+// ============================================================
+function apiUrl(path) { return API_BASE_URL.replace(/\/+$/, '') + path; }
+
+function formatTime(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatTimeShort(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function truncate(str, len = 40) {
+  if (!str) return '--';
+  return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function errorTypeBadge(type) {
+  const cls = type ? 'badge-' + type : 'badge-unknown';
+  return `<span class="badge ${cls}">${type || 'unknown'}</span>`;
+}
+
+function mcpServerBadge(name) {
+  if (!name) return '<span class="mcp-badge">--</span>';
+  const colors = ['#3b82f6','#a855f7','#06b6d4','#22c55e','#f97316','#ec4899','#8b5cf6','#14b8a6','#f43f5e','#6366f1'];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) { hash = ((hash << 5) - hash) + name.charCodeAt(i); hash |= 0; }
+  const color = colors[Math.abs(hash) % colors.length];
+  return `<span class="mcp-badge" style="background:rgba(${parseInt(color.slice(1,3),16)},${parseInt(color.slice(3,5),16)},${parseInt(color.slice(5,7),16)},0.12);color:${color};border-color:rgba(${parseInt(color.slice(1,3),16)},${parseInt(color.slice(3,5),16)},${parseInt(color.slice(5,7),16)},0.25);">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    ${name}</span>`;
+}
+
+function sessionLink(sid) {
+  if (!sid) return '<span class="ts-cell">--</span>';
+  return `<a class="session-link" href="#" onclick="copySessionId('${sid}');return false;">${sid}</a>`;
+}
+
+function copySessionId(sid) {
+  navigator.clipboard.writeText(sid).then(() => showToast('已复制 Session ID: ' + sid,'success')).catch(() => showToast('复制失败','error'));
+}
+
+// ============================================================
+// Toast
+// ============================================================
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + type;
+  const icon = type === 'success'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  el.innerHTML = icon + msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+// ============================================================
+// Count-up animation
+// ============================================================
+function animateCount(el, target, duration = 800) {
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const start = performance.now();
+  const from = current;
+  function tick(now) {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (target - from) * eased);
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+// Render
+// ============================================================
+function renderStats(data) {
+  if (!data) return;
+  statsData = data;
+  animateCount(document.getElementById('mcpTotal'), data.mcpCalls?.total ?? 0);
+  animateCount(document.getElementById('mcpSuccess'), data.mcpCalls?.success ?? 0);
+  animateCount(document.getElementById('mcpError'), data.mcpCalls?.error ?? 0);
+  animateCount(document.getElementById('toolTotal'), data.toolCalls?.total ?? 0);
+  animateCount(document.getElementById('toolSuccess'), data.toolCalls?.success ?? 0);
+  animateCount(document.getElementById('toolError'), data.toolCalls?.error ?? 0);
+  animateCount(document.getElementById('totalErrors'), data.totalErrors ?? 0);
+  updateOverviewFromStats(data);
+  updateOverviewFromErrors(errorsData);
+  updateBadgePreviews();
+  // Update trend if visible
+  if (document.getElementById('view-trend').classList.contains('active')) updateTrendCharts();
+}
+
+function renderErrors(errors) {
+  errorsData = errors || [];
+  const count = errorsData.length;
+  const elc = document.getElementById('errorListCount');
+  const ec = document.getElementById('errorCount');
+  if (elc) elc.textContent = count;
+  if (ec) ec.textContent = count + ' 条';
+
+  const errorBody = document.getElementById('errorBody');
+  const emptyState = document.getElementById('emptyState');
+
+  if (count === 0) {
+    if (errorBody) errorBody.innerHTML = '';
+    if (emptyState) emptyState.style.display = 'block';
+    return;
+  }
+  if (emptyState) emptyState.style.display = 'none';
+
+  let html = '';
+  errorsData.forEach((err, idx) => {
+    html += `<tr onclick="toggleErrorDetail(${idx})">
+      <td><span class="expand-icon" id="expand-icon-${idx}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span></td>
+      <td>${errorTypeBadge(err.type || err.errorType)}</td>
+      <td>${mcpServerBadge(err.mcpServer)}</td>
+      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text-secondary)">${truncate(err.toolName, 28) || '--'}</td>
+      <td style="color:var(--accent-red);font-size:0.75rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${truncate(err.errorMessage, 50) || '--'}</td>
+      <td>${sessionLink(err.sessionId)}</td>
+      <td><span class="ts-cell">${formatTimeShort(err.timestamp)}</span></td>
+    </tr>`;
+    html += `<tr class="error-detail-row" id="err-detail-${idx}">
+      <td colspan="7" class="error-detail-cell">
+        <div class="error-detail-inner">
+          <div class="error-detail-label">错误消息</div>
+          <div class="error-detail-msg">${escapeHtml(err.errorMessage || '无')}</div>
+          <div class="error-detail-label">AI 分析</div>
+          <div class="error-detail-analysis">${escapeHtml(err.llmAnalysis || '暂无分析')}</div>
+        </div>
+      </td>
+    </tr>`;
+  });
+  if (errorBody) errorBody.innerHTML = html;
+  updateOverviewFromErrors(errorsData);
+  // Update session/trend if visible
+  if (document.getElementById('view-session').classList.contains('active')) renderSessionList();
+  if (document.getElementById('view-trend').classList.contains('active')) updateTrendCharts();
+}
+
+function toggleErrorDetail(idx) {
+  const row = document.getElementById('err-detail-' + idx);
+  const icon = document.getElementById('expand-icon-' + idx);
+  if (!row) return;
+  const isOpen = row.classList.toggle('open');
+  if (icon) icon.classList.toggle('open', isOpen);
+  const parentRow = row.previousElementSibling;
+  if (parentRow) parentRow.classList.toggle('expanded', isOpen);
+}
+
+// ============================================================
+// Data fetching
+// ============================================================
+async function fetchStats() {
+  try {
+    const res = await fetch(apiUrl('/api/stats'), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    renderStats(data);
+    return data;
+  } catch (e) { console.warn('fetchStats failed:', e); return null; }
+}
+
+async function fetchErrors() {
+  try {
+    const res = await fetch(apiUrl('/api/errors'), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    renderErrors(data);
+    return data;
+  } catch (e) { console.warn('fetchErrors failed:', e); return null; }
+}
+
+async function loadAllData() { await Promise.all([fetchStats(), fetchErrors()]); }
+
+// ============================================================
+// SSE Connection
+// ============================================================
+function connectSSE() {
+  disconnectSSE();
+  stopPolling();
+  const url = apiUrl('/api/events');
+  let sse;
+  try { sse = new EventSource(url); } catch (e) {
+    console.warn('SSE connection failed, falling back to polling:', e);
+    startPolling();
+    return;
+  }
+  sse.onopen = () => {
+    connectionMode = 'sse';
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    if (dot) dot.className = 'status-dot connected';
+    if (txt) txt.textContent = '实时连接';
+  };
+  sse.onmessage = (event) => {
+    try { const data = JSON.parse(event.data); if (data && data.mcpCalls) renderStats(data); } catch (e) {}
+  };
+  sse.addEventListener('stats', (event) => {
+    try { const data = JSON.parse(event.data); if (data && data.mcpCalls) renderStats(data); } catch (e) {}
+  });
+  sse.addEventListener('error', (event) => {
+    try { const data = JSON.parse(event.data); if (data && data.mcpCalls) renderStats(data); } catch (e) {}
+  });
+  sse.onerror = () => {
+    sse.close();
+    connectionMode = 'disconnected';
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    if (dot) dot.className = 'status-dot disconnected';
+    if (txt) txt.textContent = '连接断开';
+    startPolling();
+  };
+  sseClient = sse;
+}
+
+function disconnectSSE() { if (sseClient) { sseClient.close(); sseClient = null; } }
+
+function startPolling() {
+  stopPolling();
+  connectionMode = 'poll';
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (dot) dot.className = 'status-dot polling';
+  if (txt) txt.textContent = '轮询中 (30s)';
+  pollTimer = setInterval(() => loadAllData(), 30000);
+}
+
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+// ============================================================
+// Reset errors
+// ============================================================
+async function resetErrors() {
+  if (isResetting) return;
+  if (!confirm('确定要清除所有错误记录吗？')) return;
+  isResetting = true;
+  try {
+    const res = await fetch(apiUrl('/api/errors'), { method: 'DELETE', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    showToast('错误记录已清除', 'success');
+    await loadAllData();
+  } catch (e) { showToast('重置失败: ' + e.message, 'error'); }
+  finally { isResetting = false; }
+}
+
+// ============================================================
+// Settings
+// ============================================================
+function openSettings() {
+  document.getElementById('apiUrl').value = API_BASE_URL;
+  document.getElementById('settingsOverlay').classList.add('open');
+  document.getElementById('apiUrl').focus();
+  document.getElementById('apiUrl').select();
+}
+function closeSettings() { document.getElementById('settingsOverlay').classList.remove('open'); }
+function closeSettingsOnOutside(e) { if (e.target === document.getElementById('settingsOverlay')) closeSettings(); }
+function saveSettings() {
+  const url = document.getElementById('apiUrl').value.trim() || DEFAULT_API_URL;
+  if (url !== API_BASE_URL) {
+    API_BASE_URL = url;
+    localStorage.setItem('mcp_monitor_api_url', url);
+    showToast('设置已保存，正在重新连接...', 'success');
+    disconnectSSE();
+    stopPolling();
+    loadAllData().then(() => connectSSE());
+  }
+  closeSettings();
+}
+
+// ============================================================
+// Keyboard shortcuts
+// ============================================================
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('settingsOverlay').classList.contains('open')) closeSettings();
+});
+
+// ============================================================
+// Init
+// ============================================================
+setTheme(currentTheme);
+initOverviewCharts();
+updateBadgePreviews();
+loadAllData().then(() => connectSSE());
+</script>
+</body>
+</html>

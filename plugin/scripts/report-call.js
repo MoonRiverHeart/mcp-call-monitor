@@ -146,6 +146,7 @@ process.stdin.on("end", async () => {
       timestamp: new Date().toISOString(),
       tool: toolName,
       model: data.model || "unknown",
+      sessionId: data.session_id || "unknown",
       isMcpCall: isMcp,
       mcpServer,
       mcpToolName,

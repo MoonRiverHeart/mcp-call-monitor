@@ -1,7 +1,7 @@
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({ request }) {
   try {
     const dataKey = "calls_data";
-    const callsData = await env.MCP_KV.get(dataKey, "json") || { calls: [], lastUpdated: null };
+    const callsData = await MCP_KV.get(dataKey, "json") || { calls: [], lastUpdated: null };
 
     return new Response(JSON.stringify({ calls: callsData.calls || [], lastUpdated: callsData.lastUpdated }), {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },

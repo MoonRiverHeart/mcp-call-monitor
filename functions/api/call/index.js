@@ -1,4 +1,4 @@
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost({ request }) {
   try {
     const call = await request.json();
 
@@ -18,8 +18,8 @@ export async function onRequestPost({ request, env }) {
     const dataKey = "calls_data";
     const seenKey = "seen_call_ids";
 
-    let callsData = await env.MCP_KV.get(dataKey, "json") || { calls: [], lastUpdated: null };
-    let seenIds = await env.MCP_KV.get(seenKey, "json") || [];
+    let callsData = await MCP_KV.get(dataKey, "json") || { calls: [], lastUpdated: null };
+    let seenIds = await MCP_KV.get(seenKey, "json") || [];
 
     if (seenIds.includes(call.callId)) {
       return new Response(JSON.stringify({ ok: true, dedup: true }), {
@@ -37,8 +37,8 @@ export async function onRequestPost({ request, env }) {
       seenIds = callsData.calls.map(c => c.callId);
     }
 
-    await env.MCP_KV.put(dataKey, JSON.stringify(callsData));
-    await env.MCP_KV.put(seenKey, JSON.stringify(seenIds));
+    await MCP_KV.put(dataKey, JSON.stringify(callsData));
+    await MCP_KV.put(seenKey, JSON.stringify(seenIds));
 
     return new Response(JSON.stringify({ ok: true, totalCalls: callsData.calls.length }), {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },

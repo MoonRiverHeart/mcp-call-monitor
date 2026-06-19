@@ -94,14 +94,11 @@ app.post('/api/call', (req, res) => {
   try {
     const call = req.body;
 
-    if (!call || !call.callId) {
+    if (!call.callId) {
       return res.status(400).json({ error: 'Missing required field: callId' });
     }
     if (!call.tool) {
       return res.status(400).json({ error: 'Missing required field: tool' });
-    }
-    if (!call.sessionId) {
-      return res.status(400).json({ error: 'Missing required field: sessionId' });
     }
 
     const data = readData();
@@ -128,61 +125,71 @@ app.get('/api/stats', (req, res) => {
   try {
     const data = readData();
 
-    const stats = {
-      mcpCalls: { total: 0, success: 0, error: 0 },
-      toolCalls: { total: 0, success: 0, error: 0 },
-      totalErrors: 0,
-      totalCalls: 0,
-      errorRate: 0,
-      lastUpdated: data.lastUpdated,
-    };
+    const byModel = {};
+    const byTime = { hourly: {}, daily: {} };
+    const byMcpServer = {};
+    const byTool = {};
+    let totalCalls = 0, totalMcpCalls = 0, totalToolCalls = 0;
+    let totalSuccess = 0, totalErrors = 0;
 
-    // Aggregate from reports (existing source)
-    for (const report of data.reports) {
-      if (report.mcpCalls) {
-        stats.mcpCalls.total += report.mcpCalls.total || 0;
-        stats.mcpCalls.success += report.mcpCalls.success || 0;
-        stats.mcpCalls.error += report.mcpCalls.error || 0;
-      }
-      if (report.toolCalls) {
-        stats.toolCalls.total += report.toolCalls.total || 0;
-        stats.toolCalls.success += report.toolCalls.success || 0;
-        stats.toolCalls.error += report.toolCalls.error || 0;
-      }
-      if (report.errors && Array.isArray(report.errors)) {
-        stats.totalErrors += report.errors.length;
-      }
-    }
-
-    // Aggregate from individual call records (new source)
     for (const call of data.calls) {
-      stats.totalCalls += 1;
-      if (call.isMcpCall) {
-        stats.mcpCalls.total += 1;
-        if (call.success) {
-          stats.mcpCalls.success += 1;
-        } else {
-          stats.mcpCalls.error += 1;
-          stats.totalErrors += 1;
-        }
-      } else {
-        stats.toolCalls.total += 1;
-        if (call.success) {
-          stats.toolCalls.success += 1;
-        } else {
-          stats.toolCalls.error += 1;
-          stats.totalErrors += 1;
-        }
+      totalCalls += 1;
+      const ok = call.success ? 1 : 0;
+      const err = call.success ? 0 : 1;
+      totalSuccess += ok;
+      totalErrors += err;
+
+      const isMcp = call.isMcpCall ? true : false;
+      if (isMcp) { totalMcpCalls += 1; } else { totalToolCalls += 1; }
+
+      const model = call.model || 'unknown';
+      if (!byModel[model]) byModel[model] = { total: 0, success: 0, error: 0, mcpCalls: 0, toolCalls: 0 };
+      byModel[model].total += 1;
+      byModel[model].success += ok;
+      byModel[model].error += err;
+      if (isMcp) byModel[model].mcpCalls += 1; else byModel[model].toolCalls += 1;
+
+      const ts = call.timestamp || '';
+      if (ts) {
+        const hour = ts.substring(0, 13);
+        const day = ts.substring(0, 10);
+        if (!byTime.hourly[hour]) byTime.hourly[hour] = { total: 0, success: 0, error: 0 };
+        byTime.hourly[hour].total += 1;
+        byTime.hourly[hour].success += ok;
+        byTime.hourly[hour].error += err;
+        if (!byTime.daily[day]) byTime.daily[day] = { total: 0, success: 0, error: 0 };
+        byTime.daily[day].total += 1;
+        byTime.daily[day].success += ok;
+        byTime.daily[day].error += err;
       }
+
+      const mcpServer = call.mcpServer || (isMcp ? 'unknown' : null);
+      if (mcpServer) {
+        if (!byMcpServer[mcpServer]) byMcpServer[mcpServer] = { total: 0, success: 0, error: 0, tools: {} };
+        byMcpServer[mcpServer].total += 1;
+        byMcpServer[mcpServer].success += ok;
+        byMcpServer[mcpServer].error += err;
+        const mcpTool = call.mcpToolName || call.tool || 'unknown';
+        if (!byMcpServer[mcpServer].tools[mcpTool]) byMcpServer[mcpServer].tools[mcpTool] = { total: 0, success: 0, error: 0 };
+        byMcpServer[mcpServer].tools[mcpTool].total += 1;
+        byMcpServer[mcpServer].tools[mcpTool].success += ok;
+        byMcpServer[mcpServer].tools[mcpTool].error += err;
+      }
+
+      const tool = call.tool || 'unknown';
+      if (!byTool[tool]) byTool[tool] = { total: 0, success: 0, error: 0 };
+      byTool[tool].total += 1;
+      byTool[tool].success += ok;
+      byTool[tool].error += err;
     }
 
-    // Compute error rate from total individual call records
-    const combinedTotal = stats.mcpCalls.total + stats.toolCalls.total;
-    if (combinedTotal > 0) {
-      stats.errorRate = (stats.totalErrors / combinedTotal * 100);
-    }
+    const errorRate = totalCalls > 0 ? (totalErrors / totalCalls * 100) : 0;
 
-    res.json(stats);
+    res.json({
+      totalCalls, totalMcpCalls, totalToolCalls, totalSuccess, totalErrors, errorRate,
+      byModel, byTime, byMcpServer, byTool,
+      lastUpdated: data.lastUpdated,
+    });
   } catch (err) {
     console.error('GET /api/stats error:', err.message);
     res.status(500).json({ error: 'Internal server error' });

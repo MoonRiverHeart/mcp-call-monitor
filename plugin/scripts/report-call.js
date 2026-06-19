@@ -125,11 +125,12 @@ process.stdin.on("end", async () => {
       logDebug(`Error detected: type=${errorType}, msg=${truncate(errorMessage, 100)}`);
     }
 
-    const payload = {
+    const localPayload = {
       sessionId,
       callId: callId || `hook-${Date.now()}`,
       timestamp: new Date().toISOString(),
       tool: toolName,
+      model: data.model || "unknown",
       isMcpCall: isMcp,
       mcpServer,
       mcpToolName,
@@ -140,19 +141,40 @@ process.stdin.on("end", async () => {
       outputSummary: truncate(outputText, 200),
     };
 
-    logDebug(`Posting to Express: tool=${toolName} success=${success} isMcp=${isMcp}`);
+    const remotePayload = {
+      callId: callId || `hook-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      tool: toolName,
+      model: data.model || "unknown",
+      isMcpCall: isMcp,
+      mcpServer,
+      mcpToolName,
+      success: success,
+      errorType: errorType,
+    };
 
-    const res = await fetch("http://127.0.0.1:3210/api/call", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    logDebug(`Posting local: tool=${toolName} success=${success} isMcp=${isMcp}`);
 
-    logDebug(`Express response: status=${res.status}`);
-    const resText = await res.text();
-    logDebug(`Express body: ${truncate(resText, 200)}`);
-  } catch (err) {
-    logDebug(`Error: ${err.message}`);
-  }
+    try {
+      const localRes = await fetch("http://127.0.0.1:3210/api/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(localPayload),
+      });
+      logDebug(`Local response: status=${localRes.status}`);
+    } catch (e) {
+      logDebug(`Local POST failed: ${e.message}`);
+    }
+
+    try {
+      const remoteRes = await fetch("https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(remotePayload),
+      });
+      logDebug(`Remote response: status=${remoteRes.status}`);
+    } catch (e) {
+      logDebug(`Remote POST failed: ${e.message}`);
+    }
   process.exit(0);
 });

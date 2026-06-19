@@ -5,23 +5,53 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import fs from "fs";
-import path from "path";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (matching Express server /api/stats response shape)
 // ---------------------------------------------------------------------------
 
-interface McpCallCounts {
+interface ModelStats {
+  total: number;
+  success: number;
+  error: number;
+  mcpCalls: number;
+  toolCalls: number;
+}
+
+interface TimeBucketStats {
   total: number;
   success: number;
   error: number;
 }
 
-interface ToolCallCounts {
+interface McpServerStats {
   total: number;
   success: number;
   error: number;
+  tools: Record<string, TimeBucketStats>;
+}
+
+interface ToolStats {
+  total: number;
+  success: number;
+  error: number;
+}
+
+interface StatsResponse {
+  totalCalls: number;
+  totalMcpCalls: number;
+  totalToolCalls: number;
+  totalSuccess: number;
+  totalErrors: number;
+  errorRate: number;
+  byModel: Record<string, ModelStats>;
+  byTime: {
+    hourly: Record<string, TimeBucketStats>;
+    daily: Record<string, TimeBucketStats>;
+  };
+  byMcpServer: Record<string, McpServerStats>;
+  byTool: Record<string, ToolStats>;
+  lastUpdated: string | null;
 }
 
 interface ErrorRecord {
@@ -32,20 +62,6 @@ interface ErrorRecord {
   errorType: string;
   llmAnalysis: string;
   timestamp: string;
-}
-
-interface SessionStats {
-  mcpCalls: McpCallCounts;
-  toolCalls: ToolCallCounts;
-  errors: ErrorRecord[];
-}
-
-interface UploadPayload {
-  sessionId: string;
-  timestamp: string;
-  mcpCalls: McpCallCounts;
-  toolCalls: ToolCallCounts;
-  errors: ErrorRecord[];
 }
 
 // ---------------------------------------------------------------------------
@@ -171,150 +187,35 @@ async function generateLlmAnalysis(
   }
 }
 
-function findSessionFiles(): string[] {
-  const possibleDirs: string[] = [];
-
-  // Windows paths
-  const appData = process.env["APPDATA"];
-  const localAppData = process.env["LOCALAPPDATA"];
-  const userProfile = process.env["USERPROFILE"];
-
-  if (appData) {
-    possibleDirs.push(`${appData}\\opencode`);
-    possibleDirs.push(`${appData}\\opencode\\sessions`);
-  }
-  if (localAppData) {
-    possibleDirs.push(`${localAppData}\\opencode`);
-    possibleDirs.push(`${localAppData}\\opencode\\sessions`);
-  }
-  if (userProfile) {
-    possibleDirs.push(`${userProfile}\\.opencode`);
-    possibleDirs.push(`${userProfile}\\.opencode\\sessions`);
-  }
-
-  // Also check common non-Windows paths (for cross-platform compatibility)
-  const home = process.env["HOME"];
-  if (home) {
-    possibleDirs.push(`${home}/.opencode`);
-    possibleDirs.push(`${home}/.opencode/sessions`);
-    possibleDirs.push(`${home}/Library/Application Support/opencode`);
-    possibleDirs.push(`${home}/Library/Application Support/opencode/sessions`);
-  }
-
-  const results: string[] = [];
-
-  for (const dir of possibleDirs) {
-    try {
-      if (fs.existsSync(dir)) {
-        const entries = fs.readdirSync(dir);
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry);
-          const stat = fs.statSync(fullPath);
-          if (stat.isFile() && (entry.endsWith(".json") || !entry.includes("."))) {
-            results.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // skip directories we cannot read
-    }
-  }
-
-  return results;
+function getServerUrl(override?: string): string {
+  return override ?? process.env["DASHBOARD_URL"] ?? DEFAULT_DASHBOARD_URL;
 }
 
-function parseSessionFile(sessionFilePath: string): SessionStats | null {
+async function fetchStats(serverUrl: string): Promise<StatsResponse | null> {
   try {
-    const raw = fs.readFileSync(sessionFilePath, "utf-8");
-    const data = JSON.parse(raw) as Record<string, unknown>;
-
-    const sessionId: string =
-      (data["sessionId"] as string | undefined) ??
-      (data["id"] as string | undefined) ??
-      (data["session_id"] as string | undefined) ??
-      path.basename(sessionFilePath, path.extname(sessionFilePath));
-
-    const mcpCalls: McpCallCounts = { total: 0, success: 0, error: 0 };
-    const toolCalls: ToolCallCounts = { total: 0, success: 0, error: 0 };
-    const errors: ErrorRecord[] = [];
-
-    // Try to extract tool call info from messages array
-    const messages: unknown[] =
-      (data["messages"] as unknown[] | undefined) ??
-      (data["log"] as unknown[] | undefined) ??
-      (data["events"] as unknown[] | undefined) ??
-      [];
-
-    for (const msg of messages) {
-      if (typeof msg !== "object" || msg === null) continue;
-
-      const record = msg as Record<string, unknown>;
-
-      // Check for tool call messages
-      const content =
-        record["content"] ?? record["text"] ?? record["message"] ?? "";
-      const contentStr = typeof content === "string" ? content : JSON.stringify(content);
-
-      const toolName: string | undefined =
-        (record["toolName"] as string | undefined) ??
-        (record["tool"] as string | undefined) ??
-        (record["name"] as string | undefined) ??
-        (record["function"] as string | undefined);
-
-      const mcpServer: string | undefined =
-        (record["mcpServer"] as string | undefined) ??
-        (record["server"] as string | undefined) ??
-        (record["source"] as string | undefined);
-
-      const isError =
-        record["error"] !== undefined ||
-        record["level"] === "error" ||
-        record["status"] === "error" ||
-        /error|fail|invalid/i.test(contentStr);
-
-      if (toolName || contentStr.includes("tool_call") || contentStr.includes("mcp_")) {
-        toolCalls.total++;
-        if (isError) {
-          toolCalls.error++;
-        } else {
-          toolCalls.success++;
-        }
-      }
-
-      if (mcpServer || contentStr.includes("mcp_")) {
-        mcpCalls.total++;
-        if (isError) {
-          mcpCalls.error++;
-        } else {
-          mcpCalls.success++;
-        }
-      }
-
-      // Extract error details
-      if (isError) {
-        const errorMessage: string =
-          (record["errorMessage"] as string) ??
-          (record["error"] as string) ??
-          (record["message"] as string) ??
-          contentStr;
-
-        const errorType = classifyError(errorMessage);
-
-        errors.push({
-          sessionId,
-          mcpServer: mcpServer ?? "unknown",
-          toolName: toolName ?? "unknown",
-          errorMessage,
-          errorType,
-          llmAnalysis: "",
-          timestamp: (record["timestamp"] as string) ?? new Date().toISOString(),
-        });
-      }
-    }
-
-    return { mcpCalls, toolCalls, errors };
+    const response = await fetch(`${serverUrl}/api/stats`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as StatsResponse;
   } catch {
     return null;
+  }
+}
+
+async function fetchErrors(serverUrl: string): Promise<ErrorRecord[]> {
+  try {
+    const response = await fetch(`${serverUrl}/api/errors`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (Array.isArray(data)) return data as ErrorRecord[];
+    const wrapped = (data as Record<string, unknown>)["errors"];
+    if (Array.isArray(wrapped)) return wrapped as ErrorRecord[];
+    return [];
+  } catch {
+    return [];
   }
 }
 
@@ -323,39 +224,7 @@ function parseSessionFile(sessionFilePath: string): SessionStats | null {
 // ---------------------------------------------------------------------------
 
 const CollectStatsSchema = z.object({
-  sessionPath: z.string().optional(),
-  sessionData: z
-    .array(
-      z.object({
-        sessionId: z.string().optional(),
-        mcpCalls: z
-          .object({
-            total: z.number().optional(),
-            success: z.number().optional(),
-            error: z.number().optional(),
-          })
-          .optional(),
-        toolCalls: z
-          .object({
-            total: z.number().optional(),
-            success: z.number().optional(),
-            error: z.number().optional(),
-          })
-          .optional(),
-        errors: z
-          .array(
-            z.object({
-              mcpServer: z.string().optional(),
-              toolName: z.string().optional(),
-              errorMessage: z.string().optional(),
-              errorType: z.string().optional(),
-              timestamp: z.string().optional(),
-            }),
-          )
-          .optional(),
-      }),
-    )
-    .optional(),
+  serverUrl: z.string().optional(),
 });
 
 const AnalyzeErrorSchema = z.object({
@@ -366,20 +235,14 @@ const AnalyzeErrorSchema = z.object({
 
 const UploadReportSchema = z.object({
   stats: z.object({
-    mcpCalls: z.object({
-      total: z.number(),
-      success: z.number(),
-      error: z.number(),
-    }),
-    toolCalls: z.object({
-      total: z.number(),
-      success: z.number(),
-      error: z.number(),
-    }),
+    totalCalls: z.number(),
+    totalMcpCalls: z.number(),
+    totalToolCalls: z.number(),
+    totalSuccess: z.number(),
+    totalErrors: z.number(),
   }),
   errors: z.array(
     z.object({
-      sessionId: z.string().optional(),
       mcpServer: z.string(),
       toolName: z.string(),
       errorMessage: z.string(),
@@ -393,38 +256,6 @@ const UploadReportSchema = z.object({
 
 const FullScanSchema = z.object({
   serverUrl: z.string().optional(),
-  sessionData: z
-    .array(
-      z.object({
-        sessionId: z.string().optional(),
-        mcpCalls: z
-          .object({
-            total: z.number().optional(),
-            success: z.number().optional(),
-            error: z.number().optional(),
-          })
-          .optional(),
-        toolCalls: z
-          .object({
-            total: z.number().optional(),
-            success: z.number().optional(),
-            error: z.number().optional(),
-          })
-          .optional(),
-        errors: z
-          .array(
-            z.object({
-              mcpServer: z.string().optional(),
-              toolName: z.string().optional(),
-              errorMessage: z.string().optional(),
-              errorType: z.string().optional(),
-              timestamp: z.string().optional(),
-            }),
-          )
-          .optional(),
-      }),
-    )
-    .optional(),
 });
 
 const TrendsSchema = z.object({
@@ -459,57 +290,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "mcp_monitor_collect_stats",
         description:
-          "Scans OpenCode session data and collects all MCP/tool call statistics. " +
-          "Attempts to auto-discover session files from the OpenCode data directory. " +
-          "If no session files are found, pass session data via the sessionData parameter. " +
-          "Returns structured stats including total/success/error counts for MCP calls and tool calls.",
+          "Fetches aggregated MCP/tool call statistics from the Express server's /api/stats endpoint. " +
+          "Returns total counts, error rate, breakdowns by model, time, MCP server, and tool. " +
+          "No session-based aggregation — all data is server-wide.",
         inputSchema: {
           type: "object",
           properties: {
-            sessionPath: {
+            serverUrl: {
               type: "string",
               description:
-                "Optional path to a specific session file or directory. If omitted, auto-discovers from OpenCode data directories.",
-            },
-            sessionData: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  sessionId: { type: "string" },
-                  mcpCalls: {
-                    type: "object",
-                    properties: {
-                      total: { type: "number" },
-                      success: { type: "number" },
-                      error: { type: "number" },
-                    },
-                  },
-                  toolCalls: {
-                    type: "object",
-                    properties: {
-                      total: { type: "number" },
-                      success: { type: "number" },
-                      error: { type: "number" },
-                    },
-                  },
-                  errors: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        mcpServer: { type: "string" },
-                        toolName: { type: "string" },
-                        errorMessage: { type: "string" },
-                        errorType: { type: "string" },
-                        timestamp: { type: "string" },
-                      },
-                    },
-                  },
-                },
-              },
-              description:
-                "Optional array of session data objects. Use this when auto-discovery finds no files.",
+                "Optional Express server URL. Defaults to http://localhost:3210 or DASHBOARD_URL env var.",
             },
           },
         },
@@ -547,6 +337,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description:
           "Uploads collected MCP call statistics and error data to the backend dashboard server. " +
           "Makes an HTTP POST request to {serverUrl}/api/report with the stats and errors payload. " +
+          "The stats parameter uses the new flat shape (totalCalls, totalMcpCalls, etc.). " +
           "The default server URL is http://localhost:3210, overridable via the serverUrl parameter " +
           "or the DASHBOARD_URL environment variable.",
         inputSchema: {
@@ -555,33 +346,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             stats: {
               type: "object",
               properties: {
-                mcpCalls: {
-                  type: "object",
-                  properties: {
-                    total: { type: "number" },
-                    success: { type: "number" },
-                    error: { type: "number" },
-                  },
-                  required: ["total", "success", "error"],
-                },
-                toolCalls: {
-                  type: "object",
-                  properties: {
-                    total: { type: "number" },
-                    success: { type: "number" },
-                    error: { type: "number" },
-                  },
-                  required: ["total", "success", "error"],
-                },
+                totalCalls: { type: "number" },
+                totalMcpCalls: { type: "number" },
+                totalToolCalls: { type: "number" },
+                totalSuccess: { type: "number" },
+                totalErrors: { type: "number" },
               },
-              required: ["mcpCalls", "toolCalls"],
+              required: ["totalCalls", "totalMcpCalls", "totalToolCalls", "totalSuccess", "totalErrors"],
             },
             errors: {
               type: "array",
               items: {
                 type: "object",
                 properties: {
-                  sessionId: { type: "string" },
                   mcpServer: { type: "string" },
                   toolName: { type: "string" },
                   errorMessage: { type: "string" },
@@ -604,57 +381,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "mcp_monitor_full_scan",
         description:
-          "Performs a complete monitoring scan in one call: collects MCP/tool call statistics " +
-          "from sessions, detects and analyzes errors, and uploads the report to the backend server. " +
-          "Combines collect_stats, analyze_error (for each error), and upload_report into a single operation. " +
-          "Attempts auto-discovery of session files first; if none found, pass sessionData parameter.",
+          "Performs a complete monitoring scan in one call: fetches aggregated stats from the Express server, " +
+          "fetches and analyzes errors, and uploads the report. " +
+          "Combines collect_stats, analyze_error (for each error), and upload_report into a single operation.",
         inputSchema: {
           type: "object",
           properties: {
             serverUrl: {
               type: "string",
               description:
-                "Optional backend server URL. Defaults to http://localhost:3210 or DASHBOARD_URL env var.",
-            },
-            sessionData: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  sessionId: { type: "string" },
-                  mcpCalls: {
-                    type: "object",
-                    properties: {
-                      total: { type: "number" },
-                      success: { type: "number" },
-                      error: { type: "number" },
-                    },
-                  },
-                  toolCalls: {
-                    type: "object",
-                    properties: {
-                      total: { type: "number" },
-                      success: { type: "number" },
-                      error: { type: "number" },
-                    },
-                  },
-                  errors: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        mcpServer: { type: "string" },
-                        toolName: { type: "string" },
-                        errorMessage: { type: "string" },
-                        errorType: { type: "string" },
-                        timestamp: { type: "string" },
-                      },
-                    },
-                  },
-                },
-              },
-              description:
-                "Optional array of session data. Use when auto-discovery finds no files.",
+                "Optional Express server URL. Defaults to http://localhost:3210 or DASHBOARD_URL env var.",
             },
           },
         },
@@ -663,10 +399,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "mcp_monitor_trends",
         description:
           "Performs time-series and error-rate trend analysis of MCP/tool calls. " +
-          "Fetches call records from the Express server, filters by lookback period, " +
-          "groups into time buckets (hour or day), and computes per-bucket metrics " +
-          "including call counts, error rates, top error types, and top failing tools. " +
-          "Also returns an overall summary with peak hours and average call rates.",
+          "Fetches pre-aggregated time buckets from the Express server's /api/stats byTime field, " +
+          "filters by lookback period, and computes per-bucket metrics including call counts, " +
+          "error rates, and summary statistics with peak hours and average call rates.",
         inputSchema: {
           type: "object",
           properties: {
@@ -702,109 +437,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // -----------------------------------------------------------------------
     case "mcp_monitor_collect_stats": {
       const parsed = CollectStatsSchema.parse(args ?? {});
+      const serverUrl = getServerUrl(parsed.serverUrl);
 
-      const aggregated: SessionStats = {
-        mcpCalls: { total: 0, success: 0, error: 0 },
-        toolCalls: { total: 0, success: 0, error: 0 },
-        errors: [],
-      };
+      const stats = await fetchStats(serverUrl);
 
-      // Try filesystem discovery
-      if (!parsed.sessionPath && !parsed.sessionData) {
-        const sessionFiles = findSessionFiles();
-
-        if (sessionFiles.length > 0) {
-          for (const file of sessionFiles) {
-            const stats = parseSessionFile(file);
-            if (stats) {
-              aggregated.mcpCalls.total += stats.mcpCalls.total;
-              aggregated.mcpCalls.success += stats.mcpCalls.success;
-              aggregated.mcpCalls.error += stats.mcpCalls.error;
-              aggregated.toolCalls.total += stats.toolCalls.total;
-              aggregated.toolCalls.success += stats.toolCalls.success;
-              aggregated.toolCalls.error += stats.toolCalls.error;
-              aggregated.errors.push(...stats.errors);
-            }
-          }
-
-          // If filesystem data is empty (all zeros), try Express server as fallback
-          const hasData =
-            aggregated.mcpCalls.total > 0 ||
-            aggregated.toolCalls.total > 0 ||
-            aggregated.errors.length > 0;
-
-          if (hasData) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(
-                    {
-                      source: "filesystem",
-                      filesFound: sessionFiles.length,
-                      ...aggregated,
-                    },
-                    null,
-                    2,
-                  ),
-                },
-              ],
-            };
-          }
-        }
-
-        // Filesystem files found but empty, or no files — try Express server as fallback
-        const dashboardUrl = process.env["DASHBOARD_URL"] ?? DEFAULT_DASHBOARD_URL;
-
-        try {
-          const statsResponse = await fetch(`${dashboardUrl}/api/stats`, {
-            headers: { "Content-Type": "application/json" },
-          });
-
-          if (statsResponse.ok) {
-            const serverStats = (await statsResponse.json()) as {
-              mcpCalls: McpCallCounts;
-              toolCalls: ToolCallCounts;
-              totalErrors: number;
-              totalCalls: number;
-              errorRate: number;
-              lastUpdated: string | null;
-            };
-
-            aggregated.mcpCalls = serverStats.mcpCalls;
-            aggregated.toolCalls = serverStats.toolCalls;
-
-            // Also fetch errors for completeness
-            const errorsResponse = await fetch(`${dashboardUrl}/api/errors`, {
-              headers: { "Content-Type": "application/json" },
-            });
-
-            if (errorsResponse.ok) {
-              const serverErrors = (await errorsResponse.json()) as Array<ErrorRecord>;
-              aggregated.errors = serverErrors;
-            }
-
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(
-                    {
-                      source: "express_server",
-                      message: "No session files found locally; fetched real-time stats from Express server.",
-                      ...aggregated,
-                    },
-                    null,
-                    2,
-                  ),
-                },
-              ],
-            };
-          }
-        } catch {
-          // Express server unreachable — fall through to empty result
-        }
-
+      if (!stats) {
         return {
           content: [
             {
@@ -813,9 +450,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   source: "none",
                   message:
-                    "No session files found in OpenCode data directories and Express server unreachable. " +
-                    "Please provide session data via the sessionData parameter.",
-                  ...aggregated,
+                    "Express server unreachable at " + serverUrl + "/api/stats. " +
+                    "Ensure the server is running on port 3210.",
+                  totalCalls: 0,
+                  totalMcpCalls: 0,
+                  totalToolCalls: 0,
+                  totalSuccess: 0,
+                  totalErrors: 0,
+                  errorRate: 0,
+                  byModel: {},
+                  byTime: { hourly: {}, daily: {} },
+                  byMcpServer: {},
+                  byTool: {},
                 },
                 null,
                 2,
@@ -825,44 +471,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      // Use provided session data
-      if (parsed.sessionData) {
-        for (const session of parsed.sessionData) {
-          if (session.mcpCalls) {
-            aggregated.mcpCalls.total += session.mcpCalls.total ?? 0;
-            aggregated.mcpCalls.success += session.mcpCalls.success ?? 0;
-            aggregated.mcpCalls.error += session.mcpCalls.error ?? 0;
-          }
-          if (session.toolCalls) {
-            aggregated.toolCalls.total += session.toolCalls.total ?? 0;
-            aggregated.toolCalls.success += session.toolCalls.success ?? 0;
-            aggregated.toolCalls.error += session.toolCalls.error ?? 0;
-          }
-          if (session.errors) {
-            for (const err of session.errors) {
-              aggregated.errors.push({
-                sessionId: session.sessionId ?? "unknown",
-                mcpServer: err.mcpServer ?? "unknown",
-                toolName: err.toolName ?? "unknown",
-                errorMessage: err.errorMessage ?? "No error message",
-                errorType: err.errorType ?? classifyError(err.errorMessage ?? ""),
-                llmAnalysis: "",
-                timestamp: err.timestamp ?? new Date().toISOString(),
-              });
-            }
-          }
-        }
-      }
-
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify(
               {
-                source: "provided_data",
-                sessionsProcessed: parsed.sessionData?.length ?? 0,
-                ...aggregated,
+                source: "express_server",
+                totalCalls: stats.totalCalls,
+                totalMcpCalls: stats.totalMcpCalls,
+                totalToolCalls: stats.totalToolCalls,
+                totalSuccess: stats.totalSuccess,
+                totalErrors: stats.totalErrors,
+                errorRate: stats.errorRate,
+                byModel: stats.byModel,
+                byTime: stats.byTime,
+                byMcpServer: stats.byMcpServer,
+                byTool: stats.byTool,
+                lastUpdated: stats.lastUpdated,
               },
               null,
               2,
@@ -919,15 +545,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // -----------------------------------------------------------------------
     case "mcp_monitor_upload_report": {
       const parsed = UploadReportSchema.parse(args ?? {});
-      const serverUrl = parsed.serverUrl ?? process.env["DASHBOARD_URL"] ?? DEFAULT_DASHBOARD_URL;
+      const serverUrl = getServerUrl(parsed.serverUrl);
 
-      const payload: UploadPayload = {
-        sessionId: `scan-${Date.now()}`,
+      // Transform new flat stats shape to Express server /api/report format
+      const payload = {
+        sessionId: `upload-${Date.now()}`,
         timestamp: new Date().toISOString(),
-        mcpCalls: parsed.stats.mcpCalls,
-        toolCalls: parsed.stats.toolCalls,
+        mcpCalls: {
+          total: parsed.stats.totalMcpCalls,
+          success: 0,
+          error: 0,
+        },
+        toolCalls: {
+          total: parsed.stats.totalToolCalls,
+          success: 0,
+          error: 0,
+        },
         errors: parsed.errors.map((e) => ({
-          sessionId: e.sessionId ?? "unknown",
+          sessionId: "upload",
           mcpServer: e.mcpServer,
           toolName: e.toolName,
           errorMessage: e.errorMessage,
@@ -1005,66 +640,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // -----------------------------------------------------------------------
     case "mcp_monitor_full_scan": {
       const parsed = FullScanSchema.parse(args ?? {});
-      const serverUrl = parsed.serverUrl ?? process.env["DASHBOARD_URL"] ?? DEFAULT_DASHBOARD_URL;
+      const serverUrl = getServerUrl(parsed.serverUrl);
 
-      // Step 1: Collect stats
-      const aggregated: SessionStats = {
-        mcpCalls: { total: 0, success: 0, error: 0 },
-        toolCalls: { total: 0, success: 0, error: 0 },
-        errors: [],
-      };
+      // Step 1: Fetch stats from Express server
+      const stats = await fetchStats(serverUrl);
 
-      let source = "none";
-
-      if (parsed.sessionData && parsed.sessionData.length > 0) {
-        source = "provided_data";
-        for (const session of parsed.sessionData) {
-          if (session.mcpCalls) {
-            aggregated.mcpCalls.total += session.mcpCalls.total ?? 0;
-            aggregated.mcpCalls.success += session.mcpCalls.success ?? 0;
-            aggregated.mcpCalls.error += session.mcpCalls.error ?? 0;
-          }
-          if (session.toolCalls) {
-            aggregated.toolCalls.total += session.toolCalls.total ?? 0;
-            aggregated.toolCalls.success += session.toolCalls.success ?? 0;
-            aggregated.toolCalls.error += session.toolCalls.error ?? 0;
-          }
-          if (session.errors) {
-            for (const err of session.errors) {
-              aggregated.errors.push({
-                sessionId: session.sessionId ?? "unknown",
-                mcpServer: err.mcpServer ?? "unknown",
-                toolName: err.toolName ?? "unknown",
-                errorMessage: err.errorMessage ?? "No error message",
-                errorType: err.errorType ?? classifyError(err.errorMessage ?? ""),
-                llmAnalysis: "",
-                timestamp: err.timestamp ?? new Date().toISOString(),
-              });
-            }
-          }
-        }
-      } else {
-        const sessionFiles = findSessionFiles();
-        if (sessionFiles.length > 0) {
-          source = "filesystem";
-          for (const file of sessionFiles) {
-            const stats = parseSessionFile(file);
-            if (stats) {
-              aggregated.mcpCalls.total += stats.mcpCalls.total;
-              aggregated.mcpCalls.success += stats.mcpCalls.success;
-              aggregated.mcpCalls.error += stats.mcpCalls.error;
-              aggregated.toolCalls.total += stats.toolCalls.total;
-              aggregated.toolCalls.success += stats.toolCalls.success;
-              aggregated.toolCalls.error += stats.toolCalls.error;
-              aggregated.errors.push(...stats.errors);
-            }
-          }
-        }
+      if (!stats) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  source: "none",
+                  message: "Express server unreachable. Cannot perform full scan.",
+                  totalCalls: 0,
+                  totalMcpCalls: 0,
+                  totalToolCalls: 0,
+                  totalSuccess: 0,
+                  totalErrors: 0,
+                  errorRate: 0,
+                  byModel: {},
+                  byTime: { hourly: {}, daily: {} },
+                  byMcpServer: {},
+                  byTool: {},
+                  errors: [],
+                  uploaded: false,
+                  uploadMessage: "Server unreachable, no upload attempted.",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
       }
 
-      // Step 2: Analyze each error
+      // Step 2: Fetch errors and analyze each one
+      const rawErrors = await fetchErrors(serverUrl);
       const analyzedErrors: ErrorRecord[] = [];
-      for (const err of aggregated.errors) {
+
+      for (const err of rawErrors) {
         const errorType = err.errorType || classifyError(err.errorMessage);
 
         let llmAnalysis = await generateLlmAnalysis(
@@ -1089,12 +705,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
       }
 
-      // Step 3: Upload
-      const payload: UploadPayload = {
+      // Step 3: Upload report
+      const payload = {
         sessionId: `full-scan-${Date.now()}`,
         timestamp: new Date().toISOString(),
-        mcpCalls: aggregated.mcpCalls,
-        toolCalls: aggregated.toolCalls,
+        mcpCalls: {
+          total: stats.totalMcpCalls,
+          success: 0,
+          error: 0,
+        },
+        toolCalls: {
+          total: stats.totalToolCalls,
+          success: 0,
+          error: 0,
+        },
         errors: analyzedErrors,
       };
 
@@ -1124,14 +748,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify(
               {
-                stats: {
-                  mcpCalls: aggregated.mcpCalls,
-                  toolCalls: aggregated.toolCalls,
-                },
+                source: "express_server",
+                totalCalls: stats.totalCalls,
+                totalMcpCalls: stats.totalMcpCalls,
+                totalToolCalls: stats.totalToolCalls,
+                totalSuccess: stats.totalSuccess,
+                totalErrors: stats.totalErrors,
+                errorRate: stats.errorRate,
+                byModel: stats.byModel,
+                byTime: stats.byTime,
+                byMcpServer: stats.byMcpServer,
+                byTool: stats.byTool,
                 errors: analyzedErrors,
                 uploaded,
                 uploadMessage,
-                source,
               },
               null,
               2,
@@ -1148,193 +778,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const parsed = TrendsSchema.parse(args ?? {});
       const hours = parsed.hours ?? 24;
       const groupBy = parsed.groupBy ?? "hour";
-      const serverUrl = parsed.serverUrl ?? process.env["DASHBOARD_URL"] ?? DEFAULT_DASHBOARD_URL;
+      const serverUrl = getServerUrl(parsed.serverUrl);
 
-      try {
-        const callsResponse = await fetch(`${serverUrl}/api/calls`, {
-          headers: { "Content-Type": "application/json" },
-        });
+      const stats = await fetchStats(serverUrl);
 
-        if (!callsResponse.ok) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    success: false,
-                    message: `Failed to fetch calls from server: ${callsResponse.status} ${await callsResponse.text()}`,
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
-
-        const callsData = (await callsResponse.json()) as {
-          calls: Array<Record<string, unknown>>;
-          lastUpdated: string | null;
-        };
-
-        const now = Date.now();
-        const cutoff = now - hours * 60 * 60 * 1000;
-
-        const filteredCalls = callsData.calls.filter((call) => {
-          const ts = call["timestamp"] as string | undefined;
-          if (!ts) return false;
-          return new Date(ts).getTime() >= cutoff;
-        });
-
-        // Group calls into time buckets
-        const bucketMap = new Map<string, Array<Record<string, unknown>>>();
-
-        for (const call of filteredCalls) {
-          const ts = call["timestamp"] as string | undefined;
-          if (!ts) continue;
-          const date = new Date(ts);
-
-          let bucketLabel: string;
-          if (groupBy === "day") {
-            bucketLabel = date.toISOString().slice(0, 10);
-          } else {
-            bucketLabel = date.toISOString().slice(0, 13);
-          }
-
-          const existing = bucketMap.get(bucketLabel);
-          if (existing) {
-            existing.push(call);
-          } else {
-            bucketMap.set(bucketLabel, [call]);
-          }
-        }
-
-        // Compute per-bucket metrics
-        const trends: Array<{
-          timeBucket: string;
-          totalCalls: number;
-          mcpCalls: number;
-          toolCalls: number;
-          successCount: number;
-          errorCount: number;
-          errorRate: number;
-          topErrors: Array<{ errorType: string; count: number }>;
-          topFailingTools: Array<{ toolName: string; count: number }>;
-        }> = [];
-
-        for (const [bucketLabel, bucketCalls] of bucketMap) {
-          let mcpCalls = 0;
-          let toolCalls = 0;
-          let successCount = 0;
-          let errorCount = 0;
-
-          const errorTypeCounts = new Map<string, number>();
-          const toolErrorCounts = new Map<string, number>();
-
-          for (const call of bucketCalls) {
-            const isMcp = (call["isMcpCall"] as boolean | undefined) ?? false;
-            const success = (call["success"] as boolean | undefined) ?? true;
-
-            if (isMcp) {
-              mcpCalls++;
-            } else {
-              toolCalls++;
-            }
-
-            if (success) {
-              successCount++;
-            } else {
-              errorCount++;
-
-              const errMsg = (call["errorMessage"] as string | undefined) ?? "";
-              const errType = (call["errorType"] as string | undefined) ?? classifyError(errMsg);
-              errorTypeCounts.set(errType, (errorTypeCounts.get(errType) ?? 0) + 1);
-
-              const toolName = (call["tool"] as string | undefined) ?? (call["toolName"] as string | undefined) ?? "unknown";
-              toolErrorCounts.set(toolName, (toolErrorCounts.get(toolName) ?? 0) + 1);
-            }
-          }
-
-          const totalCalls = bucketCalls.length;
-          const errorRate = totalCalls > 0 ? (errorCount / totalCalls) * 100 : 0;
-
-          const topErrors = [...errorTypeCounts.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([errorType, count]) => ({ errorType, count }));
-
-          const topFailingTools = [...toolErrorCounts.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([toolName, count]) => ({ toolName, count }));
-
-          trends.push({
-            timeBucket: bucketLabel,
-            totalCalls,
-            mcpCalls,
-            toolCalls,
-            successCount,
-            errorCount,
-            errorRate,
-            topErrors,
-            topFailingTools,
-          });
-        }
-
-        // Sort trends by timeBucket ascending
-        trends.sort((a, b) => a.timeBucket.localeCompare(b.timeBucket));
-
-        // Compute overall summary
-        const totalCalls = filteredCalls.length;
-        const totalErrors = trends.reduce((sum, b) => sum + b.errorCount, 0);
-        const overallErrorRate = totalCalls > 0 ? (totalErrors / totalCalls) * 100 : 0;
-        const totalMcpCalls = trends.reduce((sum, b) => sum + b.mcpCalls, 0);
-        const mcpCallRatio = totalCalls > 0 ? (totalMcpCalls / totalCalls) * 100 : 0;
-
-        let peakHour = "";
-        let peakHourCalls = 0;
-        let peakErrorHour = "";
-        let peakErrorHourErrors = 0;
-
-        for (const bucket of trends) {
-          if (bucket.totalCalls > peakHourCalls) {
-            peakHourCalls = bucket.totalCalls;
-            peakHour = bucket.timeBucket;
-          }
-          if (bucket.errorCount > peakErrorHourErrors) {
-            peakErrorHourErrors = bucket.errorCount;
-            peakErrorHour = bucket.timeBucket;
-          }
-        }
-
-        const bucketCount = trends.length;
-        const averageCallsPerHour = bucketCount > 0 ? totalCalls / (groupBy === "day" ? hours / 24 : hours) : 0;
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  trends,
-                  summary: {
-                    totalCalls,
-                    overallErrorRate,
-                    mcpCallRatio,
-                    peakHour,
-                    peakErrorHour,
-                    averageCallsPerHour,
-                  },
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+      if (!stats) {
         return {
           content: [
             {
@@ -1342,7 +790,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   success: false,
-                  message: `Failed to fetch trend data: ${errorMessage}`,
+                  message: `Failed to fetch stats from Express server at ${serverUrl}/api/stats.`,
                 },
                 null,
                 2,
@@ -1351,6 +799,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ],
         };
       }
+
+      // Select hourly or daily buckets from byTime
+      const buckets = groupBy === "day" ? stats.byTime.daily : stats.byTime.hourly;
+
+      // Filter buckets by lookback period
+      const now = Date.now();
+      const cutoff = now - hours * 60 * 60 * 1000;
+
+      const filteredBuckets: Array<{
+        timeBucket: string;
+        total: number;
+        success: number;
+        error: number;
+        errorRate: number;
+      }> = [];
+
+      for (const [key, bucketStats] of Object.entries(buckets)) {
+        // Parse bucket key as a date for filtering
+        // Hourly keys: "2026-06-19T10" → parse as ISO date
+        // Daily keys: "2026-06-19" → parse as ISO date
+        let bucketDate: Date;
+        try {
+          if (groupBy === "day") {
+            bucketDate = new Date(key + "T00:00:00Z");
+          } else {
+            bucketDate = new Date(key + ":00:00Z");
+          }
+        } catch {
+          continue;
+        }
+
+        if (bucketDate.getTime() < cutoff) continue;
+
+        const total = bucketStats.total;
+        const errorRate = total > 0 ? (bucketStats.error / total) * 100 : 0;
+
+        filteredBuckets.push({
+          timeBucket: key,
+          total: bucketStats.total,
+          success: bucketStats.success,
+          error: bucketStats.error,
+          errorRate,
+        });
+      }
+
+      // Sort by timeBucket ascending
+      filteredBuckets.sort((a, b) => a.timeBucket.localeCompare(b.timeBucket));
+
+      // Compute overall summary from filtered buckets
+      const totalCalls = filteredBuckets.reduce((sum, b) => sum + b.total, 0);
+      const totalSuccess = filteredBuckets.reduce((sum, b) => sum + b.success, 0);
+      const totalErrors = filteredBuckets.reduce((sum, b) => sum + b.error, 0);
+      const overallErrorRate = totalCalls > 0 ? (totalErrors / totalCalls) * 100 : 0;
+
+      let peakBucket = "";
+      let peakBucketCalls = 0;
+      let peakErrorBucket = "";
+      let peakErrorBucketErrors = 0;
+
+      for (const bucket of filteredBuckets) {
+        if (bucket.total > peakBucketCalls) {
+          peakBucketCalls = bucket.total;
+          peakBucket = bucket.timeBucket;
+        }
+        if (bucket.error > peakErrorBucketErrors) {
+          peakErrorBucketErrors = bucket.error;
+          peakErrorBucket = bucket.timeBucket;
+        }
+      }
+
+      const bucketCount = filteredBuckets.length;
+      const averageCallsPerHour =
+        bucketCount > 0 ? totalCalls / (groupBy === "day" ? hours / 24 : hours) : 0;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                trends: filteredBuckets,
+                summary: {
+                  totalCalls,
+                  totalSuccess,
+                  totalErrors,
+                  overallErrorRate,
+                  peakBucket,
+                  peakErrorBucket,
+                  averageCallsPerHour,
+                },
+                source: "express_server",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
     }
 
     default:

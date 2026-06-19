@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Call Monitor</title>
+<meta name="description" content="MCP 调用监控系统 — 自动采集、聚合、可视化 OpenCode 会话中的工具/MCP 调用数据">
+<script src="https://assets.edgeone.site/js/tailwindcss@4.1.7.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+html,body{height:100%}
+.nav-link{transition:color .2s}
+.nav-link:hover{color:#9333ea}
+.tab-btn{transition:all .2s}
+.tab-btn.active{background:#9333ea;color:#fff}
+.rank-row{transition:background .15s}
+.rank-row:hover{background:#f8fafc}
+.rank-gold{background:linear-gradient(135deg,#fef3c7,#fde68a)}
+.new-badge{background:#10b981;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:9999px;font-weight:700;letter-spacing:.5px}
+.chart-container{width:100%;height:360px}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.animate-in{animation:fadeInUp .5s ease-out both}
+.animate-in:nth-child(2){animation-delay:.1s}
+.animate-in:nth-child(3){animation-delay:.2s}
+.animate-in:nth-child(4){animation-delay:.3s}
+</style>
+</head>
+<body>
+<main class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+
+<!-- Sticky Nav -->
+<nav class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
+  <div class="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+    <a href="#" class="flex items-center gap-2 font-bold text-slate-800">
+      <svg class="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m2 0v-4a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      MCP Call Monitor
+    </a>
+    <div class="flex items-center gap-6 text-sm font-medium text-slate-600">
+      <a href="#" class="nav-link">首页</a>
+      <a href="#rankings" class="nav-link">仪表板</a>
+      <a href="#how" class="nav-link">配置</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero Section -->
+<section class="pt-20 pb-12 px-6 max-w-7xl mx-auto text-center">
+  <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-600 mb-6 animate-in">
+    MCP Call Monitor
+  </h1>
+  <p class="text-lg md:text-xl text-slate-700 max-w-3xl mx-auto mb-10 animate-in">
+    自动采集、聚合、可视化 OpenCode 会话中所有工具与 MCP 调用数据 — 四维洞察：模型、时间、MCP 种类、工具种类
+  </p>
+  <div class="flex justify-center gap-4 flex-wrap animate-in">
+    <a href="#rankings" class="bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-8 rounded-full shadow-lg hover:shadow-xl hover:opacity-90 transition-all duration-300">查看实时数据</a>
+    <a href="#how" class="border-2 border-purple-600 text-purple-600 font-semibold py-3 px-8 rounded-full hover:bg-purple-50 transition-all duration-300">配置指南</a>
+  </div>
+</section>
+
+<!-- Feature Cards -->
+<section class="py-16 px-6 max-w-7xl mx-auto">
+  <h2 class="text-3xl font-bold text-center mb-12 text-slate-800">核心功能</h2>
+  <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+    <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow animate-in">
+      <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+        <svg class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+      </div>
+      <h3 class="text-xl font-semibold mb-2 text-slate-800">四维聚合</h3>
+      <p class="text-slate-600">按模型、时间、MCP 服务器、工具种类四个维度聚合调用数据，洞察使用模式与趋势</p>
+    </div>
+    <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow animate-in">
+      <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+        <svg class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+      <h3 class="text-xl font-semibold mb-2 text-slate-800">实时采集</h3>
+      <p class="text-slate-600">PostToolUse Hook 自动捕获每次工具调用，零配置、零侵入、后台非阻塞</p>
+    </div>
+    <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow animate-in">
+      <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+        <svg class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+      </div>
+      <h3 class="text-xl font-semibold mb-2 text-slate-800">热门排名</h3>
+      <p class="text-slate-600">实时排名 MCP 服务器、工具、模型调用热度，Top 3 金色高亮，新增项 NEW 标签</p>
+    </div>
+    <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow animate-in">
+      <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+        <svg class="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l4-4m0 0l4 4m-4-4v12"/></svg>
+      </div>
+      <h3 class="text-xl font-semibold mb-2 text-slate-800">增长曲线</h3>
+      <p class="text-slate-600">ECharts 可视化每小时/每日调用趋势，总调用、成功、错误三线对比</p>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section id="how" class="py-16 px-6 max-w-7xl mx-auto">
+  <h2 class="text-3xl font-bold text-center mb-12 text-slate-800">如何使用</h2>
+  <div class="grid md:grid-cols-2 gap-10 items-center">
+    <div class="order-2 md:order-1">
+      <ol class="space-y-6">
+        <li class="flex">
+          <div class="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-purple-600 text-white font-bold mr-4">1</div>
+          <div>
+            <h3 class="font-semibold text-lg text-slate-800 mb-1">启动 Express 后端</h3>
+            <p class="text-slate-600">运行 server 接收 Hook 数据，端口 3210</p>
+          </div>
+        </li>
+        <li class="flex">
+          <div class="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-purple-600 text-white font-bold mr-4">2</div>
+          <div>
+            <h3 class="font-semibold text-lg text-slate-800 mb-1">配置 Claude Code Hook</h3>
+            <p class="text-slate-600">在 .claude/settings.local.json 注册 PostToolUse Hook</p>
+          </div>
+        </li>
+        <li class="flex">
+          <div class="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-purple-600 text-white font-bold mr-4">3</div>
+          <div>
+            <h3 class="font-semibold text-lg text-slate-800 mb-1">开始使用</h3>
+            <p class="text-slate-600">Hook 自动捕获所有工具调用，Dashboard 实时可视化</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+    <div class="order-1 md:order-2">
+      <div class="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+        <div class="flex items-center mb-4">
+          <div class="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500"></div>
+        </div>
+        <div class="font-mono text-sm bg-slate-100 p-4 rounded-lg text-slate-800 overflow-x-auto">
+          <div class="text-purple-600">// .claude/settings.local.json</div>
+          <div class="mt-2">{</div>
+          <div class="mt-2 ml-4">"hooks": {</div>
+          <div class="mt-2 ml-8">"PostToolUse": [{</div>
+          <div class="mt-2 ml-12">"matcher": "",</div>
+          <div class="mt-2 ml-12">"hooks": [{</div>
+          <div class="mt-2 ml-16">"type": "command",</div>
+          <div class="mt-2 ml-16">"command": "node report-call.js",</div>
+          <div class="mt-2 ml-16">"async": true</div>
+          <div class="mt-2 ml-12">}]</div>
+          <div class="mt-2 ml-8">}]</div>
+          <div class="mt-2 ml-4">}</div>
+          <div class="mt-2">}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Hot Rankings -->
+<section id="rankings" class="py-16 px-6 max-w-7xl mx-auto">
+  <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">热门排名</h2>
+  <p class="text-center text-slate-500 mb-8 text-sm">今日调用热度排行 · 每 30 秒自动刷新</p>
+  <!-- Tab Switcher -->
+  <div class="flex justify-center gap-2 mb-8">
+    <button class="tab-btn active px-5 py-2 rounded-full text-sm font-semibold border border-purple-200" data-tab="mcp" onclick="switchTab('mcp')">MCP 服务器</button>
+    <button class="tab-btn px-5 py-2 rounded-full text-sm font-semibold border border-purple-200 text-slate-600 bg-white" data-tab="tools" onclick="switchTab('tools')">工具</button>
+    <button class="tab-btn px-5 py-2 rounded-full text-sm font-semibold border border-purple-200 text-slate-600 bg-white" data-tab="skills" onclick="switchTab('skills')">Skills</button>
+    <button class="tab-btn px-5 py-2 rounded-full text-sm font-semibold border border-purple-200 text-slate-600 bg-white" data-tab="models" onclick="switchTab('models')">模型</button>
+  </div>
+  <!-- Rankings Table -->
+  <div class="bg-white rounded-xl shadow-md overflow-hidden">
+    <div class="grid grid-cols-12 gap-0 px-6 py-3 bg-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+      <div class="col-span-1">#</div>
+      <div class="col-span-5">名称</div>
+      <div class="col-span-3 text-right">调用次数</div>
+      <div class="col-span-3 text-right">错误率</div>
+    </div>
+    <div id="rankingsBody" class="divide-y divide-slate-100">
+      <div class="px-6 py-8 text-center text-slate-400">加载中...</div>
+    </div>
+  </div>
+</section>
+
+<!-- Growth Curve -->
+<section id="growth" class="py-16 px-6 max-w-7xl mx-auto">
+  <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">增长曲线</h2>
+  <p class="text-center text-slate-500 mb-8 text-sm">每小时调用趋势 · 总调用 / 成功 / 错误 三线对比</p>
+  <div class="bg-white rounded-xl shadow-md p-6">
+    <div id="growthChart" class="chart-container"></div>
+  </div>
+</section>
+
+<!-- Newly Found -->
+<section id="newly" class="py-16 px-6 max-w-7xl mx-auto">
+  <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">今日新增</h2>
+  <p class="text-center text-slate-500 mb-8 text-sm">对比昨日数据，首次出现的 MCP / 工具 / 模型</p>
+  <div class="grid md:grid-cols-3 gap-8">
+    <div class="bg-white rounded-xl shadow-md p-6">
+      <h3 class="font-semibold text-lg text-slate-800 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/></svg>
+        新增 MCP
+      </h3>
+      <div id="newMcpList" class="space-y-2 text-sm text-slate-600">
+        <p class="text-slate-400">加载中...</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-md p-6">
+      <h3 class="font-semibold text-lg text-slate-800 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.056 2.184-1.056 2.61 0l1.274 3.053a1 1 0 00.95.69h3.197c1.056 0 1.507 1.09.832 1.643l-2.582 2.425a1 1 0 00-.284.95l1.274 3.053c.426 1.056-.536 1.507-1.643.832l-2.425-2.582a1 1 0 00-.95-.284l-3.053 1.274c-1.056.426-1.507-.536-.832-1.643l2.425-2.582a1 1 0 00.284-.95l-1.274-3.053a1 1 0 00-.69-.95h-3.197c-1.056 0-1.507-1.09-.832-1.643l2.582-2.425a1 1 0 00.284-.95z"/></svg>
+        新增工具
+      </h3>
+      <div id="newToolList" class="space-y-2 text-sm text-slate-600">
+        <p class="text-slate-400">加载中...</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-md p-6">
+      <h3 class="font-semibold text-lg text-slate-800 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        新增模型
+      </h3>
+      <div id="newModelList" class="space-y-2 text-sm text-slate-600">
+        <p class="text-slate-400">加载中...</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA Section -->
+<section class="py-16 px-6 max-w-7xl mx-auto">
+  <div class="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-10 text-center shadow-xl">
+    <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">部署你的 MCP Call Monitor</h2>
+    <p class="text-lg text-white/90 max-w-2xl mx-auto mb-8">本地 Express 后端 + 远端 EdgeOne Pages 部署，一键启动监控</p>
+    <div class="flex flex-col md:flex-row gap-4 justify-center">
+      <a href="https://github.com/MoonRiverHeart/mcp-call-monitor" target="_blank" class="bg-white text-purple-700 font-medium py-3 px-8 rounded-full shadow-lg hover:shadow-xl hover:bg-gray-100 transition-all duration-300">查看源码</a>
+      <a href="http://localhost:3210" target="_blank" class="bg-transparent border-2 border-white text-white font-medium py-3 px-8 rounded-full shadow-lg hover:shadow-xl hover:bg-white/10 transition-all duration-300">本地 Dashboard</a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="py-8 px-6 border-t border-slate-200">
+  <div class="max-w-7xl mx-auto text-center">
+    <p class="text-slate-500">&copy; 2026 MCP Call Monitor. Open Source on GitHub.</p>
+  </div>
+</footer>
+
+</main>
+
+<script>
+const STATS_API = 'https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/stats';
+const CALLS_API = 'https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/calls';
+
+let statsData = null;
+let callsData = null;
+let currentTab = 'mcp';
+let newlyFound = { mcpServers: [], tools: [], models: [] };
+
+// --- Tab Switcher ---
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+    if (btn.dataset.tab === tab) {
+      btn.classList.remove('bg-white', 'text-slate-600');
+    } else {
+      btn.classList.add('bg-white', 'text-slate-600');
+    }
+  });
+  renderRankings();
+}
+
+// --- Rankings ---
+function renderRankings() {
+  const body = document.getElementById('rankingsBody');
+  if (!statsData) {
+    body.innerHTML = '<div class="px-6 py-8 text-center text-slate-400">加载中...</div>';
+    return;
+  }
+
+  let items = [];
+  let skillsNote = '';
+  if (currentTab === 'mcp') {
+    items = Object.entries(statsData.byMcpServer || {})
+      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+  } else if (currentTab === 'tools') {
+    items = Object.entries(statsData.byTool || {})
+      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+  } else if (currentTab === 'skills') {
+    // Skills: derive from byTool entries that look like skill invocations
+    const skillPatterns = ['skill', 'TodoWrite', 'Session', 'Team', 'Background', 'CallOmo', 'Marketplace', 'Plugin', 'Token'];
+    const skillItems = Object.entries(statsData.byTool || {})
+      .filter(([name]) => skillPatterns.some(p => name.includes(p)))
+      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }));
+    if (skillItems.length === 0) {
+      // Fallback: show all tools with a note
+      items = Object.entries(statsData.byTool || {})
+        .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0, isFallback: true }))
+        .sort((a, b) => b.total - a.total);
+      skillsNote = 'Skills 数据随 Hook 采集完善后更新，当前以工具维度作为参考';
+    } else {
+      items = skillItems.sort((a, b) => b.total - a.total);
+    }
+  } else if (currentTab === 'models') {
+    items = Object.entries(statsData.byModel || {})
+      .map(([name, v]) => ({ name, total: v.total, success: v.success, error: v.error, errorRate: v.total > 0 ? (v.error / v.total * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  if (items.length === 0) {
+    body.innerHTML = '<div class="px-6 py-8 text-center text-slate-400">暂无数据</div>';
+    return;
+  }
+
+  const newSet = getNewSetForTab(currentTab);
+  const noteHtml = skillsNote ? `<div class="px-6 py-3 text-center text-xs text-slate-400 bg-slate-50">${skillsNote}</div>` : '';
+  body.innerHTML = noteHtml + items.map((item, i) => {
+    const isGold = i < 3;
+    const isNew = newSet.has(item.name);
+    const rowClass = isGold ? 'rank-gold' : '';
+    return `<div class="grid grid-cols-12 gap-0 px-6 py-3 rank-row ${rowClass}">
+      <div class="col-span-1 font-bold ${isGold ? 'text-amber-700' : 'text-slate-500'}">${i + 1}</div>
+      <div class="col-span-5 font-medium text-slate-800 flex items-center gap-2">
+        ${item.name}
+        ${isNew ? '<span class="new-badge">NEW</span>' : ''}
+      </div>
+      <div class="col-span-3 text-right font-semibold text-slate-700">${item.total}</div>
+      <div class="col-span-3 text-right text-sm ${item.errorRate > 5 ? 'text-red-500' : 'text-slate-500'}">${item.errorRate.toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+}
+
+function getNewSetForTab(tab) {
+  if (tab === 'mcp') return new Set(newlyFound.mcpServers);
+  if (tab === 'tools') return new Set(newlyFound.tools);
+  if (tab === 'models') return new Set(newlyFound.models);
+  return new Set();
+}
+
+// --- Growth Curve (ECharts) ---
+function renderGrowthChart() {
+  if (!statsData || !statsData.byTime || !statsData.byTime.hourly) return;
+
+  const hourly = statsData.byTime.hourly;
+  const keys = Object.keys(hourly).sort();
+  const times = keys.map(k => {
+    // Format: "2026-06-19T10" → "06-19 10:00"
+    const parts = k.split('T');
+    const date = parts[0] ? parts[0].slice(5) : k; // "06-19"
+    const hour = parts[1] ? parts[1] + ':00' : k;
+    return date + ' ' + hour;
+  });
+  const totals = keys.map(k => hourly[k].total);
+  const successes = keys.map(k => hourly[k].success);
+  const errors = keys.map(k => hourly[k].error);
+
+  const chartDom = document.getElementById('growthChart');
+  const existingChart = echarts.getInstanceByDom(chartDom);
+  if (existingChart) existingChart.dispose();
+  const chart = echarts.init(chartDom);
+  chart.setOption({
+    tooltip: { trigger: 'axis', backgroundColor: '#fff', borderColor: '#e2e8f0', textStyle: { color: '#1e293b' } },
+    legend: { data: ['总调用', '成功', '错误'], top: 10, textStyle: { color: '#475569' } },
+    grid: { left: 50, right: 30, bottom: 40, top: 50 },
+    xAxis: { type: 'category', data: times, axisLine: { lineStyle: { color: '#cbd5e1' } }, axisLabel: { color: '#64748b', fontSize: 11 } },
+    yAxis: { type: 'value', axisLine: { lineStyle: { color: '#cbd5e1' } }, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series: [
+      { name: '总调用', type: 'line', data: totals, smooth: true, lineStyle: { width: 3, color: '#9333ea' }, itemStyle: { color: '#9333ea' }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(147,51,234,0.15)' }, { offset: 1, color: 'rgba(147,51,234,0)' }] } } },
+      { name: '成功', type: 'line', data: successes, smooth: true, lineStyle: { width: 2, color: '#3b82f6' }, itemStyle: { color: '#3b82f6' } },
+      { name: '错误', type: 'line', data: errors, smooth: true, lineStyle: { width: 2, color: '#ef4444' }, itemStyle: { color: '#ef4444' } }
+    ]
+  });
+
+  window.addEventListener('resize', () => chart.resize());
+}
+
+// --- Newly Found ---
+function computeNewlyFound() {
+  if (!callsData || !callsData.calls) return;
+
+  const today = new Date().toISOString().slice(0, 10); // "2026-06-19"
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterday = yesterdayDate.toISOString().slice(0, 10);
+
+  const todayCalls = callsData.calls.filter(c => c.timestamp && c.timestamp.slice(0, 10) === today);
+  const yesterdayCalls = callsData.calls.filter(c => c.timestamp && c.timestamp.slice(0, 10) === yesterday);
+
+  const yMcp = new Set(yesterdayCalls.filter(c => c.isMcpCall && c.mcpServer).map(c => c.mcpServer));
+  const yTool = new Set(yesterdayCalls.map(c => c.tool));
+  const yModel = new Set(yesterdayCalls.filter(c => c.model).map(c => c.model));
+
+  const tMcp = new Set(todayCalls.filter(c => c.isMcpCall && c.mcpServer).map(c => c.mcpServer));
+  const tTool = new Set(todayCalls.map(c => c.tool));
+  const tModel = new Set(todayCalls.filter(c => c.model).map(c => c.model));
+
+  newlyFound.mcpServers = [...tMcp].filter(x => !yMcp.has(x));
+  newlyFound.tools = [...tTool].filter(x => !yTool.has(x));
+  newlyFound.models = [...tModel].filter(x => !yModel.has(x));
+}
+
+function renderNewlyFound() {
+  const mcpEl = document.getElementById('newMcpList');
+  const toolEl = document.getElementById('newToolList');
+  const modelEl = document.getElementById('newModelList');
+
+  mcpEl.innerHTML = newlyFound.mcpServers.length > 0
+    ? newlyFound.mcpServers.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
+    : '<p class="text-slate-400">今日无新增 MCP 服务器</p>';
+
+  toolEl.innerHTML = newlyFound.tools.length > 0
+    ? newlyFound.tools.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
+    : '<p class="text-slate-400">今日无新增工具</p>';
+
+  modelEl.innerHTML = newlyFound.models.length > 0
+    ? newlyFound.models.map(n => `<div class="flex items-center gap-2"><span class="new-badge">NEW</span><span class="text-slate-800 font-medium">${n}</span></div>`).join('')
+    : '<p class="text-slate-400">今日无新增模型</p>';
+}
+
+// --- Data Loading ---
+async function loadData() {
+  try {
+    const statsRes = await fetch(STATS_API);
+    statsData = await statsRes.json();
+  } catch (e) {
+    statsData = null;
+  }
+
+  try {
+    const callsRes = await fetch(CALLS_API);
+    callsData = await callsRes.json();
+  } catch (e) {
+    callsData = null;
+  }
+
+  if (statsData) {
+    computeNewlyFound();
+    renderRankings();
+    renderGrowthChart();
+    renderNewlyFound();
+  } else {
+    document.getElementById('rankingsBody').innerHTML = '<div class="px-6 py-8 text-center text-slate-400">无法连接远程 API</div>';
+    document.getElementById('newMcpList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
+    document.getElementById('newToolList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
+    document.getElementById('newModelList').innerHTML = '<p class="text-slate-400">无法连接远程 API</p>';
+  }
+}
+
+// --- Init ---
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

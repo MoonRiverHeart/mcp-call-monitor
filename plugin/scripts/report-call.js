@@ -167,7 +167,7 @@ process.stdin.on("end", async () => {
     }
 
     try {
-      const remoteRes = await fetch("https://mcp-call-monitor-dpe8adewbklp.edgeone.dev/api/call", {
+      const remoteRes = await fetch("https://mcp-call-monitor.edgeone.dev/api/call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(remotePayload),

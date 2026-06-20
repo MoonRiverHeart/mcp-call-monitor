@@ -2,9 +2,89 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const PORT = 3210;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const REMOTE_PREVIEW_URL = process.env.REMOTE_PREVIEW_URL || '';
+const REMOTE_API_BASE = REMOTE_PREVIEW_URL ? new URL(REMOTE_PREVIEW_URL).origin : '';
+
+// Cookie jar for EdgeOne Pages preview URL auth
+let cookieJar = {};
+let cookieJarExpires = 0; // 150min cache, must be < EdgeOne's 3hr preview URL expiry
+
+function httpsGetWithCookies(urlStr, cookies, maxRedirects = 10) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+    const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method: 'GET', headers: {} };
+    if (cookieHeader) opts.headers['Cookie'] = cookieHeader;
+    const req = https.request(opts, (res) => {
+      const scHeaders = res.headers['set-cookie'] || [];
+      for (const sc of scHeaders) {
+        const match = sc.match(/^([^=;\s]+)=([^;\s]+)/);
+        if (match) cookies[match[1]] = match[2];
+      }
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && maxRedirects > 0) {
+        const loc = res.headers.location;
+        const nextUrl = loc.startsWith('http') ? loc : new URL(loc, urlStr).toString();
+        httpsGetWithCookies(nextUrl, cookies, maxRedirects - 1).then(resolve, reject);
+      } else {
+        resolve({ status: res.statusCode, cookies });
+      }
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function httpsPostWithCookies(urlStr, body, cookies) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+    const opts = { hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, method: 'POST', headers: { 'Content-Type': 'application/json', 'Cookie': cookieHeader } };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function forwardToRemote(call) {
+  if (!REMOTE_PREVIEW_URL) return;
+  try {
+    if (!cookieJar.eo_token || Date.now() > cookieJarExpires) {
+      console.log('[remote] Acquiring auth cookies via GET preview URL...');
+      const result = await httpsGetWithCookies(REMOTE_PREVIEW_URL, {});
+      cookieJar = result.cookies;
+      cookieJarExpires = Date.now() + 150 * 60 * 1000; // cache 150 min (< 3hr expiry)
+      console.log('[remote] Cookies acquired:', cookieJar.eo_token ? 'eo_token ok' : 'no eo_token');
+    }
+
+    const payload = {
+      callId: call.callId, timestamp: call.timestamp || new Date().toISOString(),
+      tool: call.tool, model: call.model || 'unknown', sessionId: call.sessionId || 'unknown',
+      isMcpCall: call.isMcpCall ? true : false, mcpServer: call.mcpServer || null,
+      mcpToolName: call.mcpToolName || null, success: call.success ? true : false,
+      errorType: call.errorType || null,
+    };
+
+    const result = await httpsPostWithCookies(REMOTE_API_BASE + '/api/call', JSON.stringify(payload), cookieJar);
+    if (result.status === 401) {
+      cookieJar = {}; cookieJarExpires = 0;
+      console.error('[remote] 401 auth expired, will re-acquire on next call');
+    } else if (result.status >= 200 && result.status < 300) {
+      const json = JSON.parse(result.body);
+      console.log('[remote] Forwarded:', json.ok ? 'ok' : json.error);
+    } else {
+      console.error('[remote] Forward failed:', result.status, result.body.slice(0, 200));
+    }
+  } catch (e) { console.error('[remote] forwardToRemote error:', e.message); }
+}
 
 // --- Data persistence ---
 
@@ -111,6 +191,8 @@ app.post('/api/call', (req, res) => {
     writeData(data);
 
     broadcast({ type: 'new_call', call, lastUpdated: data.lastUpdated });
+
+    forwardToRemote(call); // fire-and-forget to remote KV
 
     res.json({ ok: true, totalCalls: data.calls.length });
   } catch (err) {

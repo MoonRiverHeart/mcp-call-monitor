@@ -1,34 +1,11 @@
 // mcp-call-monitor PostToolUse/PostToolUseFailure hook script
-// Receives JSON via stdin from OpenCode Claude Code compat hooks, POSTs to Express server
+// Receives JSON via stdin from OpenCode Claude Code compat hooks, POSTs to local Express server.
+// Server handles remote forwarding (two-step eo_token auth), so hook only posts locally.
 // Stdin format (Claude Code compat):
 //   { session_id, transcript_path, cwd, permission_mode, hook_event_name,
 //     tool_name (PascalCase transformed), tool_input, tool_response, tool_use_id, hook_source }
 
-const https = require("https");
-const http = require("http");
-
-const PROXY_HOST = "127.0.0.1";
-const PROXY_PORT = 7897;
-const REMOTE_HOST = "mcp-call-monitor.edgeone.dev";
-const REMOTE_PATH = "/api/call";
-
-function postViaProxy(payload) {
-  return new Promise((resolve, reject) => {
-    const connectOpts = { hostname: PROXY_HOST, port: PROXY_PORT, method: "CONNECT", path: `${REMOTE_HOST}:443` };
-    const connectReq = http.request(connectOpts);
-    connectReq.on("error", (e) => reject(new Error(`Proxy connect: ${e.message}`)));
-    connectReq.on("connect", (_res, socket) => {
-      const agent = new https.Agent({ socket, keepAlive: false });
-      const body = JSON.stringify(payload);
-      const postOpts = { hostname: REMOTE_HOST, port: 443, path: REMOTE_PATH, method: "POST", agent, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } };
-      const postReq = https.request(postOpts, (res) => { let d = ""; res.on("data", (c) => d += c); res.on("end", () => resolve({ status: res.statusCode, body: d })); });
-      postReq.on("error", (e) => reject(new Error(`Remote POST: ${e.message}`)));
-      postReq.write(body);
-      postReq.end();
-    });
-    connectReq.end();
-  });
-}
+import fs from "fs";
 
 const BUILTIN_TOOLS_PASCAL = new Set([
   "Bash", "Read", "Edit", "Write", "Glob", "Grep",
@@ -56,6 +33,7 @@ const ERROR_PATTERNS = [
 ];
 
 const LOG_FILE = "C:\\Users\\94023\\Documents\\vscode\\test\\mcp-call-monitor\\plugin\\scripts\\hook-debug.log";
+const LOCAL_API = "http://127.0.0.1:3210/api/call";
 
 function classifyError(msg) {
   if (!msg) return "unknown";
@@ -75,7 +53,6 @@ function truncate(str, maxLen) {
 function extractText(response) {
   if (!response) return "";
   if (typeof response === "string") return response;
-  // MCP tool response: could be { content: [{type:"text",text:"..."}] } or { output: "..." }
   if (response.content && Array.isArray(response.content)) {
     return response.content
       .filter(c => c.type === "text")
@@ -84,7 +61,6 @@ function extractText(response) {
   }
   if (response.output) return typeof response.output === "string" ? response.output : JSON.stringify(response.output);
   if (response.result) return typeof response.result === "string" ? response.result : JSON.stringify(response.result);
-  // Fallback: try common fields
   for (const key of ["text", "message", "error", "data", "body"]) {
     if (response[key]) return typeof response[key] === "string" ? response[key] : JSON.stringify(response[key]);
   }
@@ -93,7 +69,6 @@ function extractText(response) {
 
 function logDebug(msg) {
   try {
-    const fs = require("fs");
     const line = `[${new Date().toISOString()}] ${msg}\n`;
     fs.appendFileSync(LOG_FILE, line);
   } catch {}
@@ -108,7 +83,7 @@ process.stdin.on("end", async () => {
     const data = JSON.parse(stdin);
     logDebug(`Received: event=${data.hook_event_name} tool=${data.tool_name} session=${data.session_id}`);
 
-    const toolName = data.tool_name || "";  // PascalCase as received
+    const toolName = data.tool_name || "";
     const sessionId = data.session_id || "";
     const callId = data.tool_use_id || data.call_id || "";
     const args = data.tool_input || {};
@@ -134,11 +109,9 @@ process.stdin.on("end", async () => {
       }
     }
 
-    // Extract output text for error detection
     const outputText = extractText(response);
     logDebug(`Output text length: ${outputText.length}, first 100: ${truncate(outputText, 100)}`);
 
-    // Determine success
     const isFailureEvent = hookEvent === "PostToolUseFailure";
     const errorIndicators = ["MCP error", "Error:", "error -32603", "error:", "failed", "ETIMEDOUT", "ECONNREFUSED"];
     const hasErrorInOutput = errorIndicators.some((ind) => outputText.includes(ind));
@@ -151,7 +124,7 @@ process.stdin.on("end", async () => {
       logDebug(`Error detected: type=${errorType}, msg=${truncate(errorMessage, 100)}`);
     }
 
-    const localPayload = {
+    const payload = {
       sessionId,
       callId: callId || `hook-${Date.now()}`,
       timestamp: new Date().toISOString(),
@@ -167,37 +140,17 @@ process.stdin.on("end", async () => {
       outputSummary: truncate(outputText, 200),
     };
 
-    const remotePayload = {
-      callId: callId || `hook-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      tool: toolName,
-      model: data.model || "unknown",
-      sessionId: data.session_id || "unknown",
-      isMcpCall: isMcp,
-      mcpServer,
-      mcpToolName,
-      success: success,
-      errorType: errorType,
-    };
-
     logDebug(`Posting local: tool=${toolName} success=${success} isMcp=${isMcp}`);
 
     try {
-      const localRes = await fetch("http://127.0.0.1:3210/api/call", {
+      const res = await fetch(LOCAL_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(localPayload),
+        body: JSON.stringify(payload),
       });
-      logDebug(`Local response: status=${localRes.status}`);
+      logDebug(`Local response: status=${res.status}`);
     } catch (e) {
       logDebug(`Local POST failed: ${e.message}`);
-    }
-
-    try {
-      const remoteRes = await postViaProxy(remotePayload);
-      logDebug(`Remote response: status=${remoteRes.status}`);
-    } catch (e) {
-      logDebug(`Remote POST failed: ${e.message}`);
     }
   } catch (e) {
     logDebug(`Hook error: ${e.message}`);
